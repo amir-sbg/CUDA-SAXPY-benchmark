@@ -189,6 +189,14 @@ float benchmark_gpu(
     cudaEvent_t stop = nullptr;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
+    saxpy_kernel<<<static_cast<unsigned int>(block_count), block_size>>>(
+        device_x.data(),
+        device_y.data(),
+        device_output.data(),
+        alpha,
+        x.size());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaEventRecord(start));
     for (int iteration = 0; iteration < iterations; ++iteration) {
         saxpy_kernel<<<static_cast<unsigned int>(block_count), block_size>>>(
