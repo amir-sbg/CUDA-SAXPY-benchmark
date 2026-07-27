@@ -225,6 +225,14 @@ float maximum_error(const std::vector<float>& expected, const std::vector<float>
     return error;
 }
 
+double effective_bandwidth_gbps(std::size_t elements, float elapsed_ms) {
+    if (elapsed_ms <= 0.0F) {
+        return 0.0;
+    }
+    const double bytes = 3.0 * static_cast<double>(elements) * sizeof(float);
+    return bytes / (static_cast<double>(elapsed_ms) * 1'000'000.0);
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -253,6 +261,7 @@ int main(int argc, char** argv) {
             options.block_size,
             options.iterations);
         const float error = maximum_error(cpu_output, gpu_output);
+        const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_ms);
 
         cudaDeviceProp properties{};
         CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
@@ -262,6 +271,7 @@ int main(int argc, char** argv) {
                   << "Block size: " << options.block_size << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
                   << "GPU kernel average: " << gpu_ms << " ms\n"
+                  << "GPU effective bandwidth: " << bandwidth_gbps << " GB/s\n"
                   << "Speedup: " << cpu_ms / gpu_ms << "x\n"
                   << "Maximum absolute error: " << error << "\n";
         return error < 1e-5F ? 0 : 1;
