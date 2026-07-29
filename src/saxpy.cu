@@ -32,6 +32,7 @@ void check_cuda(cudaError_t status, const char* expression) {
 struct Options {
     std::size_t elements = 1 << 24;
     int iterations = 100;
+    int warmup_iterations = 1;
     int block_size = 256;
     float alpha = 2.0F;
     std::uint32_t seed = 7;
@@ -75,6 +76,7 @@ Options parse_options(int argc, char** argv) {
             std::cout << "Usage: cuda_saxpy [options]\n"
                       << "  --elements N       number of vector elements\n"
                       << "  --iterations N     timed repetitions\n"
+                      << "  --warmup N         untimed kernel repetitions\n"
                       << "  --block-size N     CUDA threads per block\n"
                       << "  --alpha VALUE      SAXPY scaling factor\n"
                       << "  --seed N           random input seed\n";
@@ -88,6 +90,8 @@ Options parse_options(int argc, char** argv) {
             options.elements = parse_value<std::size_t>(value, argument);
         } else if (argument == "--iterations") {
             options.iterations = parse_value<int>(value, argument);
+        } else if (argument == "--warmup") {
+            options.warmup_iterations = parse_value<int>(value, argument);
         } else if (argument == "--block-size") {
             options.block_size = parse_value<int>(value, argument);
         } else if (argument == "--alpha") {
@@ -98,9 +102,10 @@ Options parse_options(int argc, char** argv) {
             throw std::invalid_argument("unknown option: " + argument);
         }
     }
-    if (options.elements == 0 || options.iterations < 1 || options.block_size < 1 ||
+    if (options.elements == 0 || options.iterations < 1 || options.warmup_iterations < 0 ||
+        options.block_size < 1 ||
         options.block_size > 1024) {
-        throw std::invalid_argument("elements, iterations, and block size must be positive; block size must be <= 1024");
+        throw std::invalid_argument("elements, iterations, and block size must be positive; warmup must not be negative; block size must be <= 1024");
     }
     return options;
 }
@@ -171,7 +176,8 @@ float benchmark_gpu(
     std::vector<float>& output,
     float alpha,
     int block_size,
-    int iterations) {
+    int iterations,
+    int warmup_iterations) {
     DeviceBuffer<float> device_x(x.size());
     DeviceBuffer<float> device_y(y.size());
     DeviceBuffer<float> device_output(output.size());
@@ -189,12 +195,14 @@ float benchmark_gpu(
     cudaEvent_t stop = nullptr;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
-    saxpy_kernel<<<static_cast<unsigned int>(block_count), block_size>>>(
-        device_x.data(),
-        device_y.data(),
-        device_output.data(),
-        alpha,
-        x.size());
+    for (int iteration = 0; iteration < warmup_iterations; ++iteration) {
+        saxpy_kernel<<<static_cast<unsigned int>(block_count), block_size>>>(
+            device_x.data(),
+            device_y.data(),
+            device_output.data(),
+            alpha,
+            x.size());
+    }
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaEventRecord(start));
@@ -259,7 +267,8 @@ int main(int argc, char** argv) {
             gpu_output,
             options.alpha,
             options.block_size,
-            options.iterations);
+            options.iterations,
+            options.warmup_iterations);
         const float error = maximum_error(cpu_output, gpu_output);
         const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_ms);
 
