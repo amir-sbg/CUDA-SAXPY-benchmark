@@ -59,10 +59,11 @@ Available options:
   --warmup 1 \
   --block-size 256 \
   --alpha 2.0 \
-  --seed 7
+  --seed 7 \
+  --json-output reports/saxpy.json
 ```
 
-The program prints the selected GPU, vector size, block size, average CPU time, average GPU kernel time, estimated speedup, effective bandwidth, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. The program returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+The program prints the selected GPU, vector size, block size, average CPU time, average GPU kernel time, estimated speedup, effective bandwidth, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the same benchmark summary to a JSON file and creates its parent directory when needed. The program returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
 
 ## Timing note
 

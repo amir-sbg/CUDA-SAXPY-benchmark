@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <random>
@@ -36,6 +38,7 @@ struct Options {
     int block_size = 256;
     float alpha = 2.0F;
     std::uint32_t seed = 7;
+    std::string json_output;
 };
 
 template <typename T>
@@ -79,7 +82,8 @@ Options parse_options(int argc, char** argv) {
                       << "  --warmup N         untimed kernel repetitions\n"
                       << "  --block-size N     CUDA threads per block\n"
                       << "  --alpha VALUE      SAXPY scaling factor\n"
-                      << "  --seed N           random input seed\n";
+                      << "  --seed N           random input seed\n"
+                      << "  --json-output PATH write machine-readable results\n";
             std::exit(0);
         }
         if (index + 1 >= argc) {
@@ -98,6 +102,8 @@ Options parse_options(int argc, char** argv) {
             options.alpha = parse_value<float>(value, argument);
         } else if (argument == "--seed") {
             options.seed = static_cast<std::uint32_t>(parse_value<std::size_t>(value, argument));
+        } else if (argument == "--json-output") {
+            options.json_output = value;
         } else {
             throw std::invalid_argument("unknown option: " + argument);
         }
@@ -241,6 +247,49 @@ double effective_bandwidth_gbps(std::size_t elements, float elapsed_ms) {
     return bytes / (static_cast<double>(elapsed_ms) * 1'000'000.0);
 }
 
+std::string json_escape(const std::string& value) {
+    std::string escaped;
+    for (const char character : value) {
+        if (character == '"' || character == '\\') {
+            escaped += '\\';
+        }
+        escaped += character;
+    }
+    return escaped;
+}
+
+void write_json_report(
+    const Options& options,
+    const cudaDeviceProp& properties,
+    double cpu_ms,
+    float gpu_ms,
+    double bandwidth_gbps,
+    double speedup,
+    float error) {
+    const std::filesystem::path output_path(options.json_output);
+    if (!output_path.parent_path().empty()) {
+        std::filesystem::create_directories(output_path.parent_path());
+    }
+    std::ofstream report(output_path);
+    if (!report) {
+        throw std::runtime_error("could not open JSON output: " + options.json_output);
+    }
+    report << std::fixed << std::setprecision(6)
+           << "{\n"
+           << "  \"gpu\": \"" << json_escape(properties.name) << "\",\n"
+           << "  \"elements\": " << options.elements << ",\n"
+           << "  \"block_size\": " << options.block_size << ",\n"
+           << "  \"warmup_iterations\": " << options.warmup_iterations << ",\n"
+           << "  \"iterations\": " << options.iterations << ",\n"
+           << "  \"alpha\": " << options.alpha << ",\n"
+           << "  \"cpu_ms\": " << cpu_ms << ",\n"
+           << "  \"gpu_kernel_ms\": " << gpu_ms << ",\n"
+           << "  \"effective_bandwidth_gbps\": " << bandwidth_gbps << ",\n"
+           << "  \"speedup\": " << speedup << ",\n"
+           << "  \"maximum_absolute_error\": " << error << "\n"
+           << "}\n";
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -271,6 +320,7 @@ int main(int argc, char** argv) {
             options.warmup_iterations);
         const float error = maximum_error(cpu_output, gpu_output);
         const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_ms);
+        const double speedup = gpu_ms > 0.0F ? cpu_ms / gpu_ms : 0.0;
 
         cudaDeviceProp properties{};
         CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
@@ -278,11 +328,22 @@ int main(int argc, char** argv) {
                   << "GPU: " << properties.name << "\n"
                   << "Elements: " << options.elements << "\n"
                   << "Block size: " << options.block_size << "\n"
+                  << "Warm-up iterations: " << options.warmup_iterations << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
                   << "GPU kernel average: " << gpu_ms << " ms\n"
                   << "GPU effective bandwidth: " << bandwidth_gbps << " GB/s\n"
-                  << "Speedup: " << cpu_ms / gpu_ms << "x\n"
+                  << "Speedup: " << speedup << "x\n"
                   << "Maximum absolute error: " << error << "\n";
+        if (!options.json_output.empty()) {
+            write_json_report(
+                options,
+                properties,
+                cpu_ms,
+                gpu_ms,
+                bandwidth_gbps,
+                speedup,
+                error);
+        }
         return error < 1e-5F ? 0 : 1;
     } catch (const std::exception& error) {
         std::cerr << "error: " << error.what() << '\n';
