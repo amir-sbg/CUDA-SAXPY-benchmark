@@ -176,6 +176,12 @@ double benchmark_cpu(
     return std::chrono::duration<double, std::milli>(elapsed).count() / iterations;
 }
 
+std::size_t launch_block_count(std::size_t elements, int block_size, int multiprocessor_count) {
+    const auto required_blocks = (elements + block_size - 1) / block_size;
+    const auto occupancy_blocks = static_cast<std::size_t>(multiprocessor_count * 32);
+    return std::min<std::size_t>(required_blocks, occupancy_blocks);
+}
+
 float benchmark_gpu(
     const std::vector<float>& x,
     const std::vector<float>& y,
@@ -192,10 +198,10 @@ float benchmark_gpu(
 
     cudaDeviceProp properties{};
     CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
-    const auto required_blocks = (x.size() + block_size - 1) / block_size;
-    const auto block_count = std::min<std::size_t>(
-        required_blocks,
-        static_cast<std::size_t>(properties.multiProcessorCount * 32));
+    const auto block_count = launch_block_count(
+        x.size(),
+        block_size,
+        properties.multiProcessorCount);
 
     cudaEvent_t start = nullptr;
     cudaEvent_t stop = nullptr;
@@ -247,6 +253,18 @@ double effective_bandwidth_gbps(std::size_t elements, float elapsed_ms) {
     return bytes / (static_cast<double>(elapsed_ms) * 1'000'000.0);
 }
 
+double saxpy_gflops(std::size_t elements, float elapsed_ms) {
+    if (elapsed_ms <= 0.0F) {
+        return 0.0;
+    }
+    const double operations = 2.0 * static_cast<double>(elements);
+    return operations / (static_cast<double>(elapsed_ms) * 1'000'000.0);
+}
+
+double arithmetic_intensity_flop_per_byte() {
+    return 2.0 / (3.0 * static_cast<double>(sizeof(float)));
+}
+
 std::string json_escape(const std::string& value) {
     std::string escaped;
     for (const char character : value) {
@@ -261,9 +279,12 @@ std::string json_escape(const std::string& value) {
 void write_json_report(
     const Options& options,
     const cudaDeviceProp& properties,
+    std::size_t kernel_blocks,
     double cpu_ms,
     float gpu_ms,
     double bandwidth_gbps,
+    double gflops,
+    double arithmetic_intensity,
     double speedup,
     float error) {
     const std::filesystem::path output_path(options.json_output);
@@ -279,12 +300,15 @@ void write_json_report(
            << "  \"gpu\": \"" << json_escape(properties.name) << "\",\n"
            << "  \"elements\": " << options.elements << ",\n"
            << "  \"block_size\": " << options.block_size << ",\n"
+           << "  \"kernel_blocks\": " << kernel_blocks << ",\n"
            << "  \"warmup_iterations\": " << options.warmup_iterations << ",\n"
            << "  \"iterations\": " << options.iterations << ",\n"
            << "  \"alpha\": " << options.alpha << ",\n"
            << "  \"cpu_ms\": " << cpu_ms << ",\n"
            << "  \"gpu_kernel_ms\": " << gpu_ms << ",\n"
            << "  \"effective_bandwidth_gbps\": " << bandwidth_gbps << ",\n"
+           << "  \"gflops\": " << gflops << ",\n"
+           << "  \"arithmetic_intensity_flop_per_byte\": " << arithmetic_intensity << ",\n"
            << "  \"speedup\": " << speedup << ",\n"
            << "  \"maximum_absolute_error\": " << error << "\n"
            << "}\n";
@@ -320,27 +344,39 @@ int main(int argc, char** argv) {
             options.warmup_iterations);
         const float error = maximum_error(cpu_output, gpu_output);
         const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_ms);
+        const double gflops = saxpy_gflops(options.elements, gpu_ms);
+        const double arithmetic_intensity = arithmetic_intensity_flop_per_byte();
         const double speedup = gpu_ms > 0.0F ? cpu_ms / gpu_ms : 0.0;
 
         cudaDeviceProp properties{};
         CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
+        const auto kernel_blocks = launch_block_count(
+            options.elements,
+            options.block_size,
+            properties.multiProcessorCount);
         std::cout << std::fixed << std::setprecision(3)
                   << "GPU: " << properties.name << "\n"
                   << "Elements: " << options.elements << "\n"
                   << "Block size: " << options.block_size << "\n"
+                  << "Kernel blocks: " << kernel_blocks << "\n"
                   << "Warm-up iterations: " << options.warmup_iterations << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
                   << "GPU kernel average: " << gpu_ms << " ms\n"
                   << "GPU effective bandwidth: " << bandwidth_gbps << " GB/s\n"
+                  << "Achieved throughput: " << gflops << " GFLOP/s\n"
+                  << "Arithmetic intensity: " << arithmetic_intensity << " FLOP/byte\n"
                   << "Speedup: " << speedup << "x\n"
                   << "Maximum absolute error: " << error << "\n";
         if (!options.json_output.empty()) {
             write_json_report(
                 options,
                 properties,
+                kernel_blocks,
                 cpu_ms,
                 gpu_ms,
                 bandwidth_gbps,
+                gflops,
+                arithmetic_intensity,
                 speedup,
                 error);
         }
