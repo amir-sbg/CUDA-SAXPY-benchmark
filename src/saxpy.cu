@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -71,6 +72,14 @@ float parse_value(const std::string& value, const std::string& name) {
     }
 }
 
+std::uint32_t parse_seed(const std::string& value, const std::string& name) {
+    const auto parsed = parse_value<std::size_t>(value, name);
+    if (parsed > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::invalid_argument("seed must fit in uint32_t: " + value);
+    }
+    return static_cast<std::uint32_t>(parsed);
+}
+
 Options parse_options(int argc, char** argv) {
     Options options;
     for (int index = 1; index < argc; ++index) {
@@ -101,7 +110,7 @@ Options parse_options(int argc, char** argv) {
         } else if (argument == "--alpha") {
             options.alpha = parse_value<float>(value, argument);
         } else if (argument == "--seed") {
-            options.seed = static_cast<std::uint32_t>(parse_value<std::size_t>(value, argument));
+            options.seed = parse_seed(value, argument);
         } else if (argument == "--json-output") {
             options.json_output = value;
         } else {
