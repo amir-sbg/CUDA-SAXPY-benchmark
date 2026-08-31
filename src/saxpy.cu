@@ -40,6 +40,7 @@ struct Options {
     float alpha = 2.0F;
     std::uint32_t seed = 7;
     std::string json_output;
+    std::string csv_output;
 };
 
 struct GpuTiming {
@@ -99,7 +100,8 @@ Options parse_options(int argc, char** argv) {
                       << "  --block-size N     CUDA threads per block\n"
                       << "  --alpha VALUE      SAXPY scaling factor\n"
                       << "  --seed N           random input seed\n"
-                      << "  --json-output PATH write machine-readable results\n";
+                      << "  --json-output PATH write machine-readable JSON results\n"
+                      << "  --csv-output PATH  append one benchmark row to a CSV file\n";
             std::exit(0);
         }
         if (index + 1 >= argc) {
@@ -120,6 +122,8 @@ Options parse_options(int argc, char** argv) {
             options.seed = parse_seed(value, argument);
         } else if (argument == "--json-output") {
             options.json_output = value;
+        } else if (argument == "--csv-output") {
+            options.csv_output = value;
         } else {
             throw std::invalid_argument("unknown option: " + argument);
         }
@@ -366,6 +370,58 @@ void write_json_report(
            << "}\n";
 }
 
+void write_csv_report(
+    const Options& options,
+    const cudaDeviceProp& properties,
+    std::size_t kernel_blocks,
+    double cpu_ms,
+    const GpuTiming& gpu_timing,
+    double bandwidth_gbps,
+    double transfer_bandwidth,
+    double gflops,
+    double arithmetic_intensity,
+    double kernel_speedup,
+    double end_to_end_speedup,
+    float error) {
+    const std::filesystem::path output_path(options.csv_output);
+    if (!output_path.parent_path().empty()) {
+        std::filesystem::create_directories(output_path.parent_path());
+    }
+    const bool write_header = !std::filesystem::exists(output_path) ||
+        std::filesystem::file_size(output_path) == 0;
+    std::ofstream report(output_path, std::ios::app);
+    if (!report) {
+        throw std::runtime_error("could not open CSV output: " + options.csv_output);
+    }
+    if (write_header) {
+        report << "gpu,elements,block_size,kernel_blocks,warmup_iterations,iterations,alpha,"
+               << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
+               << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
+               << "arithmetic_intensity_flop_per_byte,kernel_speedup,end_to_end_speedup,"
+               << "maximum_absolute_error\n";
+    }
+    report << std::fixed << std::setprecision(6)
+           << '"' << json_escape(properties.name) << '"' << ','
+           << options.elements << ','
+           << options.block_size << ','
+           << kernel_blocks << ','
+           << options.warmup_iterations << ','
+           << options.iterations << ','
+           << options.alpha << ','
+           << cpu_ms << ','
+           << gpu_timing.host_to_device_ms << ','
+           << gpu_timing.kernel_ms << ','
+           << gpu_timing.device_to_host_ms << ','
+           << gpu_timing.end_to_end_ms << ','
+           << bandwidth_gbps << ','
+           << transfer_bandwidth << ','
+           << gflops << ','
+           << arithmetic_intensity << ','
+           << kernel_speedup << ','
+           << end_to_end_speedup << ','
+           << error << '\n';
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -431,6 +487,21 @@ int main(int argc, char** argv) {
                   << "Maximum absolute error: " << error << "\n";
         if (!options.json_output.empty()) {
             write_json_report(
+                options,
+                properties,
+                kernel_blocks,
+                cpu_ms,
+                gpu_timing,
+                bandwidth_gbps,
+                transfer_gbps,
+                gflops,
+                arithmetic_intensity,
+                kernel_speedup,
+                end_to_end_speedup,
+                error);
+        }
+        if (!options.csv_output.empty()) {
+            write_csv_report(
                 options,
                 properties,
                 kernel_blocks,

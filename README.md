@@ -62,10 +62,19 @@ Available options:
   --block-size 256 \
   --alpha 2.0 \
   --seed 7 \
-  --json-output reports/saxpy.json
+  --json-output reports/saxpy.json \
+  --csv-output reports/saxpy_sweep.csv
 ```
 
-The program prints the selected GPU, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the same benchmark summary to a JSON file and creates its parent directory when needed. The program returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+The program prints the selected GPU, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+
+Example sweep:
+
+```bash
+for block in 128 256 512; do
+  ./build/cuda_saxpy --block-size "$block" --csv-output reports/block_sweep.csv
+done
+```
 
 ## Timing note
 
