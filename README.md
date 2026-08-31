@@ -18,6 +18,7 @@ The same operation is implemented on the CPU and in a custom CUDA kernel. The pr
 - correctness comparison against the CPU reference
 - repeated kernel timing and a simple speedup estimate
 - effective device-memory bandwidth derived from the timed kernel
+- separate host-to-device, kernel, device-to-host, and end-to-end timing
 - achieved GFLOP/s, arithmetic intensity, and launched block-count reporting
 
 The kernel uses coalesced one-dimensional accesses. A grid-stride loop allows the same kernel to handle vectors larger than the number of resident threads while the report records how many blocks were launched for the selected vector size and GPU.
@@ -64,11 +65,11 @@ Available options:
   --json-output reports/saxpy.json
 ```
 
-The program prints the selected GPU, vector size, block size, launched blocks, average CPU time, average GPU kernel time, estimated speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the same benchmark summary to a JSON file and creates its parent directory when needed. The program returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+The program prints the selected GPU, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the same benchmark summary to a JSON file and creates its parent directory when needed. The program returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
 
 ## Timing note
 
-The reported GPU time covers kernel execution only. Memory allocation and host/device transfers are kept outside the timed region so the measurement focuses on the kernel. For an application-level comparison, transfer time should be included separately.
+The kernel-time metrics isolate device execution. The transfer and end-to-end fields show the cost of moving inputs and outputs across PCIe/NVLink, which is often the dominant cost for a bandwidth-bound vector operation like SAXPY.
 
 ## Project structure
 

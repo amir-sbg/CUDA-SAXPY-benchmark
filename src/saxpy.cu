@@ -42,6 +42,13 @@ struct Options {
     std::string json_output;
 };
 
+struct GpuTiming {
+    float host_to_device_ms = 0.0F;
+    float kernel_ms = 0.0F;
+    float device_to_host_ms = 0.0F;
+    float end_to_end_ms = 0.0F;
+};
+
 template <typename T>
 T parse_value(const std::string& value, const std::string& name);
 
@@ -191,7 +198,14 @@ std::size_t launch_block_count(std::size_t elements, int block_size, int multipr
     return std::min<std::size_t>(required_blocks, occupancy_blocks);
 }
 
-float benchmark_gpu(
+float event_elapsed_ms(cudaEvent_t start, cudaEvent_t stop) {
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    float elapsed = 0.0F;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    return elapsed;
+}
+
+GpuTiming benchmark_gpu(
     const std::vector<float>& x,
     const std::vector<float>& y,
     std::vector<float>& output,
@@ -202,8 +216,6 @@ float benchmark_gpu(
     DeviceBuffer<float> device_x(x.size());
     DeviceBuffer<float> device_y(y.size());
     DeviceBuffer<float> device_output(output.size());
-    CUDA_CHECK(cudaMemcpy(device_x.data(), x.data(), x.size() * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(device_y.data(), y.data(), y.size() * sizeof(float), cudaMemcpyHostToDevice));
 
     cudaDeviceProp properties{};
     CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
@@ -216,6 +228,13 @@ float benchmark_gpu(
     cudaEvent_t stop = nullptr;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
+
+    CUDA_CHECK(cudaEventRecord(start));
+    CUDA_CHECK(cudaMemcpy(device_x.data(), x.data(), x.size() * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(device_y.data(), y.data(), y.size() * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(stop));
+    const float h2d_ms = event_elapsed_ms(start, stop);
+
     for (int iteration = 0; iteration < warmup_iterations; ++iteration) {
         saxpy_kernel<<<static_cast<unsigned int>(block_count), block_size>>>(
             device_x.data(),
@@ -237,13 +256,21 @@ float benchmark_gpu(
     }
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaEventRecord(stop));
-    CUDA_CHECK(cudaEventSynchronize(stop));
-    float elapsed = 0.0F;
-    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    const float kernel_ms = event_elapsed_ms(start, stop) / iterations;
+
+    CUDA_CHECK(cudaEventRecord(start));
     CUDA_CHECK(cudaMemcpy(output.data(), device_output.data(), output.size() * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaEventRecord(stop));
+    const float d2h_ms = event_elapsed_ms(start, stop);
+
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
-    return elapsed / iterations;
+    return GpuTiming{
+        h2d_ms,
+        kernel_ms,
+        d2h_ms,
+        h2d_ms + kernel_ms + d2h_ms,
+    };
 }
 
 float maximum_error(const std::vector<float>& expected, const std::vector<float>& actual) {
@@ -274,6 +301,15 @@ double arithmetic_intensity_flop_per_byte() {
     return 2.0 / (3.0 * static_cast<double>(sizeof(float)));
 }
 
+double transfer_bandwidth_gbps(std::size_t elements, float h2d_ms, float d2h_ms) {
+    const double elapsed_ms = static_cast<double>(h2d_ms + d2h_ms);
+    if (elapsed_ms <= 0.0) {
+        return 0.0;
+    }
+    const double bytes = 3.0 * static_cast<double>(elements) * sizeof(float);
+    return bytes / (elapsed_ms * 1'000'000.0);
+}
+
 std::string json_escape(const std::string& value) {
     std::string escaped;
     for (const char character : value) {
@@ -290,11 +326,13 @@ void write_json_report(
     const cudaDeviceProp& properties,
     std::size_t kernel_blocks,
     double cpu_ms,
-    float gpu_ms,
+    const GpuTiming& gpu_timing,
     double bandwidth_gbps,
+    double transfer_bandwidth,
     double gflops,
     double arithmetic_intensity,
-    double speedup,
+    double kernel_speedup,
+    double end_to_end_speedup,
     float error) {
     const std::filesystem::path output_path(options.json_output);
     if (!output_path.parent_path().empty()) {
@@ -314,11 +352,16 @@ void write_json_report(
            << "  \"iterations\": " << options.iterations << ",\n"
            << "  \"alpha\": " << options.alpha << ",\n"
            << "  \"cpu_ms\": " << cpu_ms << ",\n"
-           << "  \"gpu_kernel_ms\": " << gpu_ms << ",\n"
+           << "  \"gpu_h2d_ms\": " << gpu_timing.host_to_device_ms << ",\n"
+           << "  \"gpu_kernel_ms\": " << gpu_timing.kernel_ms << ",\n"
+           << "  \"gpu_d2h_ms\": " << gpu_timing.device_to_host_ms << ",\n"
+           << "  \"gpu_end_to_end_ms\": " << gpu_timing.end_to_end_ms << ",\n"
            << "  \"effective_bandwidth_gbps\": " << bandwidth_gbps << ",\n"
+           << "  \"transfer_bandwidth_gbps\": " << transfer_bandwidth << ",\n"
            << "  \"gflops\": " << gflops << ",\n"
            << "  \"arithmetic_intensity_flop_per_byte\": " << arithmetic_intensity << ",\n"
-           << "  \"speedup\": " << speedup << ",\n"
+           << "  \"kernel_speedup\": " << kernel_speedup << ",\n"
+           << "  \"end_to_end_speedup\": " << end_to_end_speedup << ",\n"
            << "  \"maximum_absolute_error\": " << error << "\n"
            << "}\n";
 }
@@ -343,7 +386,7 @@ int main(int argc, char** argv) {
 
         const double cpu_ms = benchmark_cpu(
             x, y, cpu_output, options.alpha, options.iterations);
-        const float gpu_ms = benchmark_gpu(
+        const GpuTiming gpu_timing = benchmark_gpu(
             x,
             y,
             gpu_output,
@@ -352,10 +395,15 @@ int main(int argc, char** argv) {
             options.iterations,
             options.warmup_iterations);
         const float error = maximum_error(cpu_output, gpu_output);
-        const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_ms);
-        const double gflops = saxpy_gflops(options.elements, gpu_ms);
+        const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_timing.kernel_ms);
+        const double transfer_gbps = transfer_bandwidth_gbps(
+            options.elements,
+            gpu_timing.host_to_device_ms,
+            gpu_timing.device_to_host_ms);
+        const double gflops = saxpy_gflops(options.elements, gpu_timing.kernel_ms);
         const double arithmetic_intensity = arithmetic_intensity_flop_per_byte();
-        const double speedup = gpu_ms > 0.0F ? cpu_ms / gpu_ms : 0.0;
+        const double kernel_speedup = gpu_timing.kernel_ms > 0.0F ? cpu_ms / gpu_timing.kernel_ms : 0.0;
+        const double end_to_end_speedup = gpu_timing.end_to_end_ms > 0.0F ? cpu_ms / gpu_timing.end_to_end_ms : 0.0;
 
         cudaDeviceProp properties{};
         CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
@@ -370,11 +418,16 @@ int main(int argc, char** argv) {
                   << "Kernel blocks: " << kernel_blocks << "\n"
                   << "Warm-up iterations: " << options.warmup_iterations << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
-                  << "GPU kernel average: " << gpu_ms << " ms\n"
+                  << "GPU H2D copy: " << gpu_timing.host_to_device_ms << " ms\n"
+                  << "GPU kernel average: " << gpu_timing.kernel_ms << " ms\n"
+                  << "GPU D2H copy: " << gpu_timing.device_to_host_ms << " ms\n"
+                  << "GPU end-to-end: " << gpu_timing.end_to_end_ms << " ms\n"
                   << "GPU effective bandwidth: " << bandwidth_gbps << " GB/s\n"
+                  << "Transfer bandwidth: " << transfer_gbps << " GB/s\n"
                   << "Achieved throughput: " << gflops << " GFLOP/s\n"
                   << "Arithmetic intensity: " << arithmetic_intensity << " FLOP/byte\n"
-                  << "Speedup: " << speedup << "x\n"
+                  << "Kernel speedup: " << kernel_speedup << "x\n"
+                  << "End-to-end speedup: " << end_to_end_speedup << "x\n"
                   << "Maximum absolute error: " << error << "\n";
         if (!options.json_output.empty()) {
             write_json_report(
@@ -382,11 +435,13 @@ int main(int argc, char** argv) {
                 properties,
                 kernel_blocks,
                 cpu_ms,
-                gpu_ms,
+                gpu_timing,
                 bandwidth_gbps,
+                transfer_gbps,
                 gflops,
                 arithmetic_intensity,
-                speedup,
+                kernel_speedup,
+                end_to_end_speedup,
                 error);
         }
         return error < 1e-5F ? 0 : 1;
