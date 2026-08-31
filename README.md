@@ -15,6 +15,7 @@ The same operation is implemented on the CPU and in a custom CUDA kernel. The pr
 - a `__global__` kernel using grid-stride indexing
 - configurable block size and vector length
 - CUDA runtime error checking
+- device-aware launch validation against `cudaDeviceProp`
 - correctness comparison against the CPU reference
 - repeated kernel timing and a simple speedup estimate
 - effective device-memory bandwidth derived from the timed kernel

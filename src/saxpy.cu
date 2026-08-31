@@ -202,6 +202,21 @@ std::size_t launch_block_count(std::size_t elements, int block_size, int multipr
     return std::min<std::size_t>(required_blocks, occupancy_blocks);
 }
 
+void validate_device_launch_options(const Options& options, const cudaDeviceProp& properties) {
+    if (options.block_size > properties.maxThreadsPerBlock) {
+        throw std::invalid_argument(
+            "block size exceeds this device limit of " +
+            std::to_string(properties.maxThreadsPerBlock));
+    }
+    const auto blocks = launch_block_count(
+        options.elements,
+        options.block_size,
+        properties.multiProcessorCount);
+    if (blocks == 0 || blocks > static_cast<std::size_t>(properties.maxGridSize[0])) {
+        throw std::invalid_argument("computed grid size is not valid for this device");
+    }
+}
+
 float event_elapsed_ms(cudaEvent_t start, cudaEvent_t stop) {
     CUDA_CHECK(cudaEventSynchronize(stop));
     float elapsed = 0.0F;
@@ -216,13 +231,12 @@ GpuTiming benchmark_gpu(
     float alpha,
     int block_size,
     int iterations,
-    int warmup_iterations) {
+    int warmup_iterations,
+    const cudaDeviceProp& properties) {
     DeviceBuffer<float> device_x(x.size());
     DeviceBuffer<float> device_y(y.size());
     DeviceBuffer<float> device_output(output.size());
 
-    cudaDeviceProp properties{};
-    CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
     const auto block_count = launch_block_count(
         x.size(),
         block_size,
@@ -428,6 +442,9 @@ int main(int argc, char** argv) {
     try {
         const Options options = parse_options(argc, argv);
         CUDA_CHECK(cudaSetDevice(0));
+        cudaDeviceProp properties{};
+        CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
+        validate_device_launch_options(options, properties);
 
         std::mt19937 generator(options.seed);
         std::normal_distribution<float> distribution(0.0F, 1.0F);
@@ -449,7 +466,8 @@ int main(int argc, char** argv) {
             options.alpha,
             options.block_size,
             options.iterations,
-            options.warmup_iterations);
+            options.warmup_iterations,
+            properties);
         const float error = maximum_error(cpu_output, gpu_output);
         const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_timing.kernel_ms);
         const double transfer_gbps = transfer_bandwidth_gbps(
@@ -461,8 +479,6 @@ int main(int argc, char** argv) {
         const double kernel_speedup = gpu_timing.kernel_ms > 0.0F ? cpu_ms / gpu_timing.kernel_ms : 0.0;
         const double end_to_end_speedup = gpu_timing.end_to_end_ms > 0.0F ? cpu_ms / gpu_timing.end_to_end_ms : 0.0;
 
-        cudaDeviceProp properties{};
-        CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
         const auto kernel_blocks = launch_block_count(
             options.elements,
             options.block_size,
