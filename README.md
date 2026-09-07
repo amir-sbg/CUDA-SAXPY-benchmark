@@ -28,6 +28,7 @@ weights[i] = weights[i] - learning_rate * gradients[i]
 - effective device-memory bandwidth derived from the timed kernel
 - separate host-to-device, kernel, device-to-host, and end-to-end timing
 - achieved GFLOP/s, arithmetic intensity, and launched block-count reporting
+- host/device working-set size and launched threads per SM
 
 The kernel uses coalesced one-dimensional accesses. A grid-stride loop allows the same kernel to handle vectors larger than the number of resident threads while the report records how many blocks were launched for the selected vector size and GPU.
 
@@ -81,7 +82,7 @@ For an optimizer-style memory update:
 ./build/cuda_saxpy --workload sgd-step --learning-rate 0.001
 ```
 
-The program prints the selected GPU, workload, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+The program prints the selected GPU, workload, vector size, block size, launched blocks, working-set size, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
 
 Example sweep:
 

@@ -338,6 +338,29 @@ float operation_alpha(const Options& options) {
     return options.workload == "sgd-step" ? -options.learning_rate : options.alpha;
 }
 
+double bytes_to_mib(std::size_t bytes) {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
+double device_working_set_mib(std::size_t elements) {
+    return bytes_to_mib(3 * elements * sizeof(float));
+}
+
+double host_working_set_mib(std::size_t elements) {
+    return bytes_to_mib(4 * elements * sizeof(float));
+}
+
+double launched_threads_per_sm(
+    std::size_t kernel_blocks,
+    int block_size,
+    int multiprocessor_count) {
+    if (multiprocessor_count <= 0) {
+        return 0.0;
+    }
+    return static_cast<double>(kernel_blocks * static_cast<std::size_t>(block_size)) /
+        static_cast<double>(multiprocessor_count);
+}
+
 double transfer_bandwidth_gbps(std::size_t elements, float h2d_ms, float d2h_ms) {
     const double elapsed_ms = static_cast<double>(h2d_ms + d2h_ms);
     if (elapsed_ms <= 0.0) {
@@ -391,6 +414,10 @@ void write_json_report(
            << "  \"alpha\": " << options.alpha << ",\n"
            << "  \"learning_rate\": " << options.learning_rate << ",\n"
            << "  \"effective_alpha\": " << operation_alpha(options) << ",\n"
+           << "  \"host_working_set_mib\": " << host_working_set_mib(options.elements) << ",\n"
+           << "  \"device_working_set_mib\": " << device_working_set_mib(options.elements) << ",\n"
+           << "  \"launched_threads_per_sm\": "
+           << launched_threads_per_sm(kernel_blocks, options.block_size, properties.multiProcessorCount) << ",\n"
            << "  \"cpu_ms\": " << cpu_ms << ",\n"
            << "  \"gpu_h2d_ms\": " << gpu_timing.host_to_device_ms << ",\n"
            << "  \"gpu_kernel_ms\": " << gpu_timing.kernel_ms << ",\n"
@@ -432,6 +459,7 @@ void write_csv_report(
     if (write_header) {
         report << "gpu,elements,block_size,kernel_blocks,warmup_iterations,iterations,alpha,"
                << "workload,learning_rate,effective_alpha,"
+               << "host_working_set_mib,device_working_set_mib,launched_threads_per_sm,"
                << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
                << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
                << "arithmetic_intensity_flop_per_byte,kernel_speedup,end_to_end_speedup,"
@@ -448,6 +476,9 @@ void write_csv_report(
            << options.workload << ','
            << options.learning_rate << ','
            << operation_alpha(options) << ','
+           << host_working_set_mib(options.elements) << ','
+           << device_working_set_mib(options.elements) << ','
+           << launched_threads_per_sm(kernel_blocks, options.block_size, properties.multiProcessorCount) << ','
            << cpu_ms << ','
            << gpu_timing.host_to_device_ms << ','
            << gpu_timing.kernel_ms << ','
@@ -517,6 +548,10 @@ int main(int argc, char** argv) {
                   << "Block size: " << options.block_size << "\n"
                   << "Kernel blocks: " << kernel_blocks << "\n"
                   << "Effective alpha: " << effective_alpha << "\n"
+                  << "Host working set: " << host_working_set_mib(options.elements) << " MiB\n"
+                  << "Device working set: " << device_working_set_mib(options.elements) << " MiB\n"
+                  << "Launched threads per SM: "
+                  << launched_threads_per_sm(kernel_blocks, options.block_size, properties.multiProcessorCount) << "\n"
                   << "Warm-up iterations: " << options.warmup_iterations << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
                   << "GPU H2D copy: " << gpu_timing.host_to_device_ms << " ms\n"
