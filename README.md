@@ -87,10 +87,13 @@ The program prints the selected GPU, workload, vector size, block size, launched
 Example sweep:
 
 ```bash
-for block in 128 256 512; do
-  ./build/cuda_saxpy --block-size "$block" --csv-output reports/block_sweep.csv
-done
+python3 scripts/run_block_sweep.py \
+  --blocks 128 256 512 \
+  --workload sgd-step \
+  --output reports/block_sweep.csv
 ```
+
+The same sweep is available through `make sweep` after the project is built.
 
 ## Timing note
 
@@ -101,6 +104,8 @@ The kernel-time metrics isolate device execution. The transfer and end-to-end fi
 ```text
 .
 ├── src/saxpy.cu       # host code, CUDA kernel, timing, and CLI
+├── scripts/
+│   └── run_block_sweep.py
 ├── CMakeLists.txt     # CUDA build configuration
 ├── Makefile           # build and run shortcuts
 └── README.md
