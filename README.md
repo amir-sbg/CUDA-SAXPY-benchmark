@@ -8,12 +8,19 @@ output[i] = alpha * x[i] + y[i]
 
 The same operation is implemented on the CPU and in a custom CUDA kernel. The program checks the results, measures the CPU implementation with `std::chrono`, and measures GPU kernel time with CUDA events.
 
+The benchmark can also run the same memory-bound operation as a simple SGD update:
+
+```text
+weights[i] = weights[i] - learning_rate * gradients[i]
+```
+
 ## What it covers
 
 - host-to-device and device-to-host memory transfers
 - device memory ownership with a small RAII wrapper
 - a `__global__` kernel using grid-stride indexing
 - configurable block size and vector length
+- SAXPY and SGD-style update workloads
 - CUDA runtime error checking
 - device-aware launch validation against `cudaDeviceProp`
 - correctness comparison against the CPU reference
@@ -62,12 +69,19 @@ Available options:
   --warmup 1 \
   --block-size 256 \
   --alpha 2.0 \
+  --workload saxpy \
   --seed 7 \
   --json-output reports/saxpy.json \
   --csv-output reports/saxpy_sweep.csv
 ```
 
-The program prints the selected GPU, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
+For an optimizer-style memory update:
+
+```bash
+./build/cuda_saxpy --workload sgd-step --learning-rate 0.001
+```
+
+The program prints the selected GPU, workload, vector size, block size, launched blocks, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than `1e-5`.
 
 Example sweep:
 

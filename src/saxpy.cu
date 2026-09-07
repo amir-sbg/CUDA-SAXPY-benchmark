@@ -38,7 +38,9 @@ struct Options {
     int warmup_iterations = 1;
     int block_size = 256;
     float alpha = 2.0F;
+    float learning_rate = 0.01F;
     std::uint32_t seed = 7;
+    std::string workload = "saxpy";
     std::string json_output;
     std::string csv_output;
 };
@@ -99,6 +101,8 @@ Options parse_options(int argc, char** argv) {
                       << "  --warmup N         untimed kernel repetitions\n"
                       << "  --block-size N     CUDA threads per block\n"
                       << "  --alpha VALUE      SAXPY scaling factor\n"
+                      << "  --workload NAME    saxpy or sgd-step\n"
+                      << "  --learning-rate V  step size used by --workload sgd-step\n"
                       << "  --seed N           random input seed\n"
                       << "  --json-output PATH write machine-readable JSON results\n"
                       << "  --csv-output PATH  append one benchmark row to a CSV file\n";
@@ -118,6 +122,10 @@ Options parse_options(int argc, char** argv) {
             options.block_size = parse_value<int>(value, argument);
         } else if (argument == "--alpha") {
             options.alpha = parse_value<float>(value, argument);
+        } else if (argument == "--workload") {
+            options.workload = value;
+        } else if (argument == "--learning-rate") {
+            options.learning_rate = parse_value<float>(value, argument);
         } else if (argument == "--seed") {
             options.seed = parse_seed(value, argument);
         } else if (argument == "--json-output") {
@@ -132,6 +140,13 @@ Options parse_options(int argc, char** argv) {
         options.block_size < 1 ||
         options.block_size > 1024) {
         throw std::invalid_argument("elements, iterations, and block size must be positive; warmup must not be negative; block size must be <= 1024");
+    }
+    if (options.workload != "saxpy" && options.workload != "sgd-step") {
+        throw std::invalid_argument("workload must be either saxpy or sgd-step");
+    }
+    if (!std::isfinite(options.alpha) || !std::isfinite(options.learning_rate) ||
+        options.learning_rate <= 0.0F) {
+        throw std::invalid_argument("alpha must be finite and learning-rate must be positive");
     }
     return options;
 }
@@ -319,6 +334,10 @@ double arithmetic_intensity_flop_per_byte() {
     return 2.0 / (3.0 * static_cast<double>(sizeof(float)));
 }
 
+float operation_alpha(const Options& options) {
+    return options.workload == "sgd-step" ? -options.learning_rate : options.alpha;
+}
+
 double transfer_bandwidth_gbps(std::size_t elements, float h2d_ms, float d2h_ms) {
     const double elapsed_ms = static_cast<double>(h2d_ms + d2h_ms);
     if (elapsed_ms <= 0.0) {
@@ -363,12 +382,15 @@ void write_json_report(
     report << std::fixed << std::setprecision(6)
            << "{\n"
            << "  \"gpu\": \"" << json_escape(properties.name) << "\",\n"
+           << "  \"workload\": \"" << json_escape(options.workload) << "\",\n"
            << "  \"elements\": " << options.elements << ",\n"
            << "  \"block_size\": " << options.block_size << ",\n"
            << "  \"kernel_blocks\": " << kernel_blocks << ",\n"
            << "  \"warmup_iterations\": " << options.warmup_iterations << ",\n"
            << "  \"iterations\": " << options.iterations << ",\n"
            << "  \"alpha\": " << options.alpha << ",\n"
+           << "  \"learning_rate\": " << options.learning_rate << ",\n"
+           << "  \"effective_alpha\": " << operation_alpha(options) << ",\n"
            << "  \"cpu_ms\": " << cpu_ms << ",\n"
            << "  \"gpu_h2d_ms\": " << gpu_timing.host_to_device_ms << ",\n"
            << "  \"gpu_kernel_ms\": " << gpu_timing.kernel_ms << ",\n"
@@ -409,6 +431,7 @@ void write_csv_report(
     }
     if (write_header) {
         report << "gpu,elements,block_size,kernel_blocks,warmup_iterations,iterations,alpha,"
+               << "workload,learning_rate,effective_alpha,"
                << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
                << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
                << "arithmetic_intensity_flop_per_byte,kernel_speedup,end_to_end_speedup,"
@@ -422,6 +445,9 @@ void write_csv_report(
            << options.warmup_iterations << ','
            << options.iterations << ','
            << options.alpha << ','
+           << options.workload << ','
+           << options.learning_rate << ','
+           << operation_alpha(options) << ','
            << cpu_ms << ','
            << gpu_timing.host_to_device_ms << ','
            << gpu_timing.kernel_ms << ','
@@ -457,13 +483,14 @@ int main(int argc, char** argv) {
             y[index] = distribution(generator);
         }
 
+        const float effective_alpha = operation_alpha(options);
         const double cpu_ms = benchmark_cpu(
-            x, y, cpu_output, options.alpha, options.iterations);
+            x, y, cpu_output, effective_alpha, options.iterations);
         const GpuTiming gpu_timing = benchmark_gpu(
             x,
             y,
             gpu_output,
-            options.alpha,
+            effective_alpha,
             options.block_size,
             options.iterations,
             options.warmup_iterations,
@@ -485,9 +512,11 @@ int main(int argc, char** argv) {
             properties.multiProcessorCount);
         std::cout << std::fixed << std::setprecision(3)
                   << "GPU: " << properties.name << "\n"
+                  << "Workload: " << options.workload << "\n"
                   << "Elements: " << options.elements << "\n"
                   << "Block size: " << options.block_size << "\n"
                   << "Kernel blocks: " << kernel_blocks << "\n"
+                  << "Effective alpha: " << effective_alpha << "\n"
                   << "Warm-up iterations: " << options.warmup_iterations << "\n"
                   << "CPU average: " << cpu_ms << " ms\n"
                   << "GPU H2D copy: " << gpu_timing.host_to_device_ms << " ms\n"
