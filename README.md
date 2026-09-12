@@ -89,12 +89,13 @@ Example sweep:
 
 ```bash
 python3 scripts/run_block_sweep.py \
+  --elements 1048576 4194304 16777216 \
   --blocks 128 256 512 \
   --workload sgd-step \
   --output reports/block_sweep.csv
 ```
 
-The same sweep is available through `make sweep` after the project is built.
+The same sweep is available through `make sweep` after the project is built. Passing more than one `--elements` value is useful for checking where launch overhead stops dominating and the memory-bound kernel reaches a steadier bandwidth regime.
 
 ## Timing note
 
