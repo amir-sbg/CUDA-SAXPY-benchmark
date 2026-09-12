@@ -39,6 +39,7 @@ struct Options {
     int block_size = 256;
     float alpha = 2.0F;
     float learning_rate = 0.01F;
+    float tolerance = 1e-5F;
     std::uint32_t seed = 7;
     std::string workload = "saxpy";
     std::string json_output;
@@ -103,6 +104,7 @@ Options parse_options(int argc, char** argv) {
                       << "  --alpha VALUE      SAXPY scaling factor\n"
                       << "  --workload NAME    saxpy or sgd-step\n"
                       << "  --learning-rate V  step size used by --workload sgd-step\n"
+                      << "  --tolerance V      max allowed absolute error\n"
                       << "  --seed N           random input seed\n"
                       << "  --json-output PATH write machine-readable JSON results\n"
                       << "  --csv-output PATH  append one benchmark row to a CSV file\n";
@@ -126,6 +128,8 @@ Options parse_options(int argc, char** argv) {
             options.workload = value;
         } else if (argument == "--learning-rate") {
             options.learning_rate = parse_value<float>(value, argument);
+        } else if (argument == "--tolerance") {
+            options.tolerance = parse_value<float>(value, argument);
         } else if (argument == "--seed") {
             options.seed = parse_seed(value, argument);
         } else if (argument == "--json-output") {
@@ -145,8 +149,10 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("workload must be either saxpy or sgd-step");
     }
     if (!std::isfinite(options.alpha) || !std::isfinite(options.learning_rate) ||
-        options.learning_rate <= 0.0F) {
-        throw std::invalid_argument("alpha must be finite and learning-rate must be positive");
+        !std::isfinite(options.tolerance) || options.learning_rate <= 0.0F ||
+        options.tolerance <= 0.0F) {
+        throw std::invalid_argument(
+            "alpha must be finite; learning-rate and tolerance must be positive");
     }
     return options;
 }
@@ -414,6 +420,7 @@ void write_json_report(
            << "  \"alpha\": " << options.alpha << ",\n"
            << "  \"learning_rate\": " << options.learning_rate << ",\n"
            << "  \"effective_alpha\": " << operation_alpha(options) << ",\n"
+           << "  \"tolerance\": " << options.tolerance << ",\n"
            << "  \"host_working_set_mib\": " << host_working_set_mib(options.elements) << ",\n"
            << "  \"device_working_set_mib\": " << device_working_set_mib(options.elements) << ",\n"
            << "  \"launched_threads_per_sm\": "
@@ -458,7 +465,7 @@ void write_csv_report(
     }
     if (write_header) {
         report << "gpu,elements,block_size,kernel_blocks,warmup_iterations,iterations,alpha,"
-               << "workload,learning_rate,effective_alpha,"
+               << "workload,learning_rate,effective_alpha,tolerance,"
                << "host_working_set_mib,device_working_set_mib,launched_threads_per_sm,"
                << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
                << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
@@ -476,6 +483,7 @@ void write_csv_report(
            << options.workload << ','
            << options.learning_rate << ','
            << operation_alpha(options) << ','
+           << options.tolerance << ','
            << host_working_set_mib(options.elements) << ','
            << device_working_set_mib(options.elements) << ','
            << launched_threads_per_sm(kernel_blocks, options.block_size, properties.multiProcessorCount) << ','
@@ -564,6 +572,7 @@ int main(int argc, char** argv) {
                   << "Arithmetic intensity: " << arithmetic_intensity << " FLOP/byte\n"
                   << "Kernel speedup: " << kernel_speedup << "x\n"
                   << "End-to-end speedup: " << end_to_end_speedup << "x\n"
+                  << "Tolerance: " << options.tolerance << "\n"
                   << "Maximum absolute error: " << error << "\n";
         if (!options.json_output.empty()) {
             write_json_report(
@@ -595,7 +604,7 @@ int main(int argc, char** argv) {
                 end_to_end_speedup,
                 error);
         }
-        return error < 1e-5F ? 0 : 1;
+        return error <= options.tolerance ? 0 : 1;
     } catch (const std::exception& error) {
         std::cerr << "error: " << error.what() << '\n';
         return 1;
