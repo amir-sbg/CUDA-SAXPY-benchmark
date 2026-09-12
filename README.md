@@ -97,6 +97,20 @@ python3 scripts/run_block_sweep.py \
 
 The same sweep is available through `make sweep` after the project is built. Passing more than one `--elements` value is useful for checking where launch overhead stops dominating and the memory-bound kernel reaches a steadier bandwidth regime.
 
+Summarize the sweep into a small Markdown table:
+
+```bash
+python3 scripts/summarize_sweep.py \
+  --input reports/block_sweep.csv \
+  --output reports/block_sweep.md
+```
+
+or:
+
+```bash
+make summarize
+```
+
 ## Timing note
 
 The kernel-time metrics isolate device execution. The transfer and end-to-end fields show the cost of moving inputs and outputs across PCIe/NVLink, which is often the dominant cost for a bandwidth-bound vector operation like SAXPY.
@@ -107,7 +121,8 @@ The kernel-time metrics isolate device execution. The transfer and end-to-end fi
 .
 ├── src/saxpy.cu       # host code, CUDA kernel, timing, and CLI
 ├── scripts/
-│   └── run_block_sweep.py
+│   ├── run_block_sweep.py
+│   └── summarize_sweep.py
 ├── CMakeLists.txt     # CUDA build configuration
 ├── Makefile           # build and run shortcuts
 └── README.md
