@@ -337,6 +337,17 @@ float maximum_error(const std::vector<float>& expected, const std::vector<float>
     return error;
 }
 
+double mean_absolute_error(
+    const std::vector<float>& expected,
+    const std::vector<float>& actual) {
+    validate_outputs(expected, actual);
+    double total = 0.0;
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        total += std::abs(static_cast<double>(expected[index]) - actual[index]);
+    }
+    return total / static_cast<double>(expected.size());
+}
+
 double effective_bandwidth_gbps(std::size_t elements, float elapsed_ms) {
     if (elapsed_ms <= 0.0F) {
         return 0.0;
@@ -416,7 +427,8 @@ void write_json_report(
     double arithmetic_intensity,
     double kernel_speedup,
     double end_to_end_speedup,
-    float error) {
+    float maximum_error_value,
+    double mean_error) {
     const std::filesystem::path output_path(options.json_output);
     if (!output_path.parent_path().empty()) {
         std::filesystem::create_directories(output_path.parent_path());
@@ -453,7 +465,8 @@ void write_json_report(
            << "  \"arithmetic_intensity_flop_per_byte\": " << arithmetic_intensity << ",\n"
            << "  \"kernel_speedup\": " << kernel_speedup << ",\n"
            << "  \"end_to_end_speedup\": " << end_to_end_speedup << ",\n"
-           << "  \"maximum_absolute_error\": " << error << "\n"
+           << "  \"maximum_absolute_error\": " << maximum_error_value << ",\n"
+           << "  \"mean_absolute_error\": " << mean_error << "\n"
            << "}\n";
 }
 
@@ -469,7 +482,8 @@ void write_csv_report(
     double arithmetic_intensity,
     double kernel_speedup,
     double end_to_end_speedup,
-    float error) {
+    float maximum_error_value,
+    double mean_error) {
     const std::filesystem::path output_path(options.csv_output);
     if (!output_path.parent_path().empty()) {
         std::filesystem::create_directories(output_path.parent_path());
@@ -487,7 +501,7 @@ void write_csv_report(
                << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
                << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
                << "arithmetic_intensity_flop_per_byte,kernel_speedup,end_to_end_speedup,"
-               << "maximum_absolute_error\n";
+               << "maximum_absolute_error,mean_absolute_error\n";
     }
     report << std::fixed << std::setprecision(6)
            << '"' << json_escape(properties.name) << '"' << ','
@@ -515,7 +529,8 @@ void write_csv_report(
            << arithmetic_intensity << ','
            << kernel_speedup << ','
            << end_to_end_speedup << ','
-           << error << '\n';
+           << maximum_error_value << ','
+           << mean_error << '\n';
 }
 
 }
@@ -552,6 +567,7 @@ int main(int argc, char** argv) {
             options.warmup_iterations,
             properties);
         const float error = maximum_error(cpu_output, gpu_output);
+        const double mean_error = mean_absolute_error(cpu_output, gpu_output);
         const double bandwidth_gbps = effective_bandwidth_gbps(options.elements, gpu_timing.kernel_ms);
         const double transfer_gbps = transfer_bandwidth_gbps(
             options.elements,
@@ -590,7 +606,8 @@ int main(int argc, char** argv) {
                   << "Kernel speedup: " << kernel_speedup << "x\n"
                   << "End-to-end speedup: " << end_to_end_speedup << "x\n"
                   << "Tolerance: " << options.tolerance << "\n"
-                  << "Maximum absolute error: " << error << "\n";
+                  << "Maximum absolute error: " << error << "\n"
+                  << "Mean absolute error: " << mean_error << "\n";
         if (!options.json_output.empty()) {
             write_json_report(
                 options,
@@ -604,7 +621,8 @@ int main(int argc, char** argv) {
                 arithmetic_intensity,
                 kernel_speedup,
                 end_to_end_speedup,
-                error);
+                error,
+                mean_error);
         }
         if (!options.csv_output.empty()) {
             write_csv_report(
@@ -619,7 +637,8 @@ int main(int argc, char** argv) {
                 arithmetic_intensity,
                 kernel_speedup,
                 end_to_end_speedup,
-                error);
+                error,
+                mean_error);
         }
         return error <= options.tolerance ? 0 : 1;
     } catch (const std::exception& error) {

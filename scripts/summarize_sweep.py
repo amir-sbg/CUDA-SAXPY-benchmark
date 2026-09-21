@@ -15,6 +15,7 @@ REQUIRED_COLUMNS = {
     "gflops",
     "kernel_speedup",
     "maximum_absolute_error",
+    "mean_absolute_error",
 }
 
 
@@ -46,6 +47,7 @@ def best_by_problem_size(rows: list[dict[str, str]]) -> list[dict[str, str]]:
                 "gflops": best["gflops"],
                 "kernel_speedup": best["kernel_speedup"],
                 "maximum_absolute_error": best["maximum_absolute_error"],
+                "mean_absolute_error": best["mean_absolute_error"],
             }
         )
     return sorted(best_rows, key=lambda row: (row["workload"], int(row["elements"])))
@@ -56,14 +58,14 @@ def write_markdown(rows: list[dict[str, str]], output: Path) -> Path:
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Kernel ms | Bandwidth GB/s | GFLOP/s | Speedup | Max error |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Workload | Elements | Best block | Kernel ms | Bandwidth GB/s | GFLOP/s | Speedup | Max error | Mean error |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
             "| {workload} | {elements} | {block_size} | {gpu_kernel_ms} | "
             "{effective_bandwidth_gbps} | {gflops} | {kernel_speedup} | "
-            "{maximum_absolute_error} |".format(**row)
+            "{maximum_absolute_error} | {mean_absolute_error} |".format(**row)
         )
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
