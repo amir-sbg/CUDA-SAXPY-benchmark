@@ -312,7 +312,24 @@ GpuTiming benchmark_gpu(
     };
 }
 
+void validate_outputs(
+    const std::vector<float>& expected,
+    const std::vector<float>& actual) {
+    if (expected.empty() || actual.empty()) {
+        throw std::invalid_argument("benchmark outputs must not be empty");
+    }
+    if (expected.size() != actual.size()) {
+        throw std::invalid_argument("benchmark outputs must have the same size");
+    }
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        if (!std::isfinite(expected[index]) || !std::isfinite(actual[index])) {
+            throw std::runtime_error("benchmark outputs must be finite");
+        }
+    }
+}
+
 float maximum_error(const std::vector<float>& expected, const std::vector<float>& actual) {
+    validate_outputs(expected, actual);
     float error = 0.0F;
     for (std::size_t index = 0; index < expected.size(); ++index) {
         error = std::max(error, std::abs(expected[index] - actual[index]));
