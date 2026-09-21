@@ -1,67 +1,39 @@
 # CUDA SAXPY Benchmark
 
-A small CUDA C++ project that implements and benchmarks the SAXPY operation:
+A CUDA C++ benchmark for a memory-bound vector operation used throughout numerical computing and ML systems:
 
 ```text
-output[i] = alpha * x[i] + y[i]
+y = alpha * x + y
 ```
 
-The same operation is implemented on the CPU and in a custom CUDA kernel. The program checks the results, measures the CPU implementation with `std::chrono`, and measures GPU kernel time with CUDA events.
-
-The benchmark can also run the same memory-bound operation as a simple SGD update:
+The same update runs on the CPU and in a custom CUDA kernel. The executable checks numerical agreement, measures kernel and transfer time, and reports bandwidth, throughput, launch geometry, and error statistics. An `sgd-step` workload reuses the kernel for the equivalent optimizer update:
 
 ```text
-weights[i] = weights[i] - learning_rate * gradients[i]
+weights = weights - learning_rate * gradients
 ```
 
-## What it covers
+## What it measures
 
-- host-to-device and device-to-host memory transfers
-- device memory ownership with a small RAII wrapper
-- a `__global__` kernel using grid-stride indexing
-- configurable block size and vector length
-- SAXPY and SGD-style update workloads
-- CUDA runtime error checking
-- device-aware launch validation against `cudaDeviceProp`
-- correctness comparison against the CPU reference
-- repeated kernel timing and a simple speedup estimate
-- effective device-memory bandwidth derived from the timed kernel
-- separate host-to-device, kernel, device-to-host, and end-to-end timing
-- achieved GFLOP/s, arithmetic intensity, and launched block-count reporting
-- host/device working-set size and launched threads per SM
+- CPU time, host-to-device time, kernel time, device-to-host time, and end-to-end time
+- effective device and transfer bandwidth, GFLOP/s, and arithmetic intensity
+- block count, working-set size, and launched threads per SM
+- maximum and mean absolute CPU/GPU error
+- block-size and vector-size sweep summaries
 
-The kernel uses coalesced one-dimensional accesses. A grid-stride loop allows the same kernel to handle vectors larger than the number of resident threads while the report records how many blocks were launched for the selected vector size and GPU.
-
-## Requirements
-
-- NVIDIA GPU with a supported compute capability
-- CUDA Toolkit with `nvcc`
-- CMake 3.24 or newer
-- C++17 compiler
+The kernel uses coalesced one-dimensional accesses and a grid-stride loop, so the same implementation handles vectors larger than the active grid.
 
 ## Build
 
-```bash
-git clone https://github.com/amir-sbg/CUDA.git
-cd CUDA
+Requirements: an NVIDIA GPU, CUDA Toolkit with `nvcc`, CMake 3.24+, and a C++17 compiler.
 
+```bash
+git clone https://github.com/amir-sbg/CUDA-SAXPY-benchmark.git
+cd CUDA-SAXPY-benchmark
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-The Makefile provides the same commands:
-
-```bash
-make build
-```
-
 ## Run
-
-```bash
-./build/cuda_saxpy
-```
-
-Available options:
 
 ```bash
 ./build/cuda_saxpy \
@@ -72,20 +44,19 @@ Available options:
   --alpha 2.0 \
   --workload saxpy \
   --tolerance 1e-5 \
-  --seed 7 \
   --json-output reports/saxpy.json \
-  --csv-output reports/saxpy_sweep.csv
+  --csv-output reports/saxpy.csv
 ```
 
-For an optimizer-style memory update:
+For the optimizer-style update:
 
 ```bash
 ./build/cuda_saxpy --workload sgd-step --learning-rate 0.001
 ```
 
-The program prints the selected GPU, workload, vector size, block size, launched blocks, working-set size, average CPU time, H2D copy time, average GPU kernel time, D2H copy time, end-to-end GPU time, kernel speedup, end-to-end speedup, effective bandwidth, achieved GFLOP/s, arithmetic intensity, tolerance, and maximum absolute error. `--warmup` controls the number of untimed kernel launches before CUDA-event timing; it defaults to one. `--json-output` writes the benchmark summary to a JSON file, while `--csv-output` appends a row that is convenient for block-size or vector-size sweeps. The program creates parent directories when needed and returns a nonzero status when the result differs from the CPU reference by more than the configured tolerance.
+The process returns a nonzero status when the GPU result exceeds the configured tolerance. JSON and CSV outputs are useful for comparing launch configurations without mixing timing and correctness checks.
 
-Example sweep:
+## Sweeps
 
 ```bash
 python3 scripts/run_block_sweep.py \
@@ -93,37 +64,20 @@ python3 scripts/run_block_sweep.py \
   --blocks 128 256 512 \
   --workload sgd-step \
   --output reports/block_sweep.csv
-```
 
-The same sweep is available through `make sweep` after the project is built. Passing more than one `--elements` value is useful for checking where launch overhead stops dominating and the memory-bound kernel reaches a steadier bandwidth regime.
-
-Summarize the sweep into a small Markdown table:
-
-```bash
 python3 scripts/summarize_sweep.py \
   --input reports/block_sweep.csv \
   --output reports/block_sweep.md
 ```
 
-or:
+The summary selects the highest-bandwidth block size for each workload and vector size while retaining both maximum and mean numerical error.
 
-```bash
-make summarize
-```
-
-## Timing note
-
-The kernel-time metrics isolate device execution. The transfer and end-to-end fields show the cost of moving inputs and outputs across PCIe/NVLink, which is often the dominant cost for a bandwidth-bound vector operation like SAXPY.
-
-## Project structure
+## Project layout
 
 ```text
-.
-├── src/saxpy.cu       # host code, CUDA kernel, timing, and CLI
-├── scripts/
-│   ├── run_block_sweep.py
-│   └── summarize_sweep.py
-├── CMakeLists.txt     # CUDA build configuration
-├── Makefile           # build and run shortcuts
-└── README.md
+src/saxpy.cu                 CUDA kernel, host reference, timing, and CLI
+scripts/run_block_sweep.py   block/vector-size sweep runner
+scripts/summarize_sweep.py   CSV-to-Markdown summary
+CMakeLists.txt               CUDA build configuration
+Makefile                     build and run shortcuts
 ```
