@@ -71,7 +71,7 @@ python3 scripts/summarize_sweep.py \
   --output reports/block_sweep.md
 ```
 
-The summary selects the highest-bandwidth block size for each workload and vector size while retaining both maximum and mean numerical error.
+Repeated runs are aggregated by configuration. The summary selects the block size with the highest median bandwidth and reports timing IQR and bandwidth coefficient of variation, which makes noisy launch configurations easier to spot.
 
 ## Project layout
 
