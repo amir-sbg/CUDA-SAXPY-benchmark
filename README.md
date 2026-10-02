@@ -68,10 +68,11 @@ python3 scripts/run_block_sweep.py \
 
 python3 scripts/summarize_sweep.py \
   --input reports/block_sweep.csv \
-  --output reports/block_sweep.md
+  --output reports/block_sweep.md \
+  --peak-bandwidth-gbps 1008
 ```
 
-Repeated runs are aggregated by configuration. The summary selects the block size with the highest median bandwidth and reports timing IQR and bandwidth coefficient of variation, which makes noisy launch configurations easier to spot.
+Repeated runs are aggregated by configuration. The summary selects the block size with the highest median bandwidth and reports timing IQR and bandwidth coefficient of variation, which makes noisy launch configurations easier to spot. Supplying the GPU's theoretical memory bandwidth also reports the fraction reached by this memory-bound kernel.
 
 ## Project layout
 

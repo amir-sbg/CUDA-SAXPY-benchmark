@@ -84,19 +84,31 @@ def best_by_problem_size(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return sorted(best_rows, key=lambda row: (row["workload"], int(row["elements"])))
 
 
-def write_markdown(rows: list[dict[str, str]], output: Path) -> Path:
+def write_markdown(
+    rows: list[dict[str, str]],
+    output: Path,
+    peak_bandwidth_gbps: float | None = None,
+) -> Path:
+    if peak_bandwidth_gbps is not None and peak_bandwidth_gbps <= 0:
+        raise ValueError("peak bandwidth must be positive")
     output.parent.mkdir(parents=True, exist_ok=True)
+    efficiency_header = " | Peak bandwidth %" if peak_bandwidth_gbps is not None else ""
+    efficiency_rule = "|---:" if peak_bandwidth_gbps is not None else ""
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | CV | GFLOP/s | Max error |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | CV | GFLOP/s | Max error" + efficiency_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:" + efficiency_rule + "|",
     ]
     for row in rows:
+        efficiency = ""
+        if peak_bandwidth_gbps is not None:
+            percentage = 100.0 * float(row["effective_bandwidth_gbps"]) / peak_bandwidth_gbps
+            efficiency = f" {percentage:.1f} |"
         lines.append(
             "| {workload} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
             "{kernel_iqr_ms} | {effective_bandwidth_gbps} | {bandwidth_cv} | {gflops} | "
-            "{maximum_absolute_error} |".format(**row)
+            "{maximum_absolute_error} |".format(**row) + efficiency
         )
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
@@ -107,13 +119,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize cuda_saxpy sweep results.")
     parser.add_argument("--input", type=Path, default=Path("reports/block_sweep.csv"))
     parser.add_argument("--output", type=Path, default=Path("reports/block_sweep.md"))
+    parser.add_argument(
+        "--peak-bandwidth-gbps",
+        type=float,
+        help="optional theoretical device bandwidth for an efficiency estimate",
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     rows = read_rows(args.input)
-    write_markdown(best_by_problem_size(rows), args.output)
+    write_markdown(best_by_problem_size(rows), args.output, args.peak_bandwidth_gbps)
     print(f"wrote {args.output}")
 
 
