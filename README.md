@@ -62,6 +62,7 @@ The process returns a nonzero status when the GPU result exceeds the configured 
 python3 scripts/run_block_sweep.py \
   --elements 1048576 4194304 16777216 \
   --blocks 128 256 512 \
+  --repeats 5 \
   --workload sgd-step \
   --output reports/block_sweep.csv
 
