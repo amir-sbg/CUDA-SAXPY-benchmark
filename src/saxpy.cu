@@ -404,6 +404,13 @@ double transfer_bandwidth_gbps(std::size_t elements, float h2d_ms, float d2h_ms)
     return bytes / (elapsed_ms * 1'000'000.0);
 }
 
+double milliseconds_to_ns_per_element(std::size_t elements, double elapsed_ms) {
+    if (elements == 0 || elapsed_ms <= 0.0) {
+        return 0.0;
+    }
+    return elapsed_ms * 1'000'000.0 / static_cast<double>(elements);
+}
+
 std::string json_escape(const std::string& value) {
     std::string escaped;
     for (const char character : value) {
@@ -437,6 +444,10 @@ void write_json_report(
     if (!report) {
         throw std::runtime_error("could not open JSON output: " + options.json_output);
     }
+    const double kernel_ns_per_element =
+        milliseconds_to_ns_per_element(options.elements, gpu_timing.kernel_ms);
+    const double end_to_end_ns_per_element =
+        milliseconds_to_ns_per_element(options.elements, gpu_timing.end_to_end_ms);
     report << std::fixed << std::setprecision(6)
            << "{\n"
            << "  \"gpu\": \"" << json_escape(properties.name) << "\",\n"
@@ -459,6 +470,8 @@ void write_json_report(
            << "  \"gpu_kernel_ms\": " << gpu_timing.kernel_ms << ",\n"
            << "  \"gpu_d2h_ms\": " << gpu_timing.device_to_host_ms << ",\n"
            << "  \"gpu_end_to_end_ms\": " << gpu_timing.end_to_end_ms << ",\n"
+           << "  \"kernel_ns_per_element\": " << kernel_ns_per_element << ",\n"
+           << "  \"end_to_end_ns_per_element\": " << end_to_end_ns_per_element << ",\n"
            << "  \"effective_bandwidth_gbps\": " << bandwidth_gbps << ",\n"
            << "  \"transfer_bandwidth_gbps\": " << transfer_bandwidth << ",\n"
            << "  \"gflops\": " << gflops << ",\n"
@@ -499,10 +512,15 @@ void write_csv_report(
                << "workload,learning_rate,effective_alpha,tolerance,"
                << "host_working_set_mib,device_working_set_mib,launched_threads_per_sm,"
                << "cpu_ms,gpu_h2d_ms,gpu_kernel_ms,gpu_d2h_ms,gpu_end_to_end_ms,"
+               << "kernel_ns_per_element,end_to_end_ns_per_element,"
                << "effective_bandwidth_gbps,transfer_bandwidth_gbps,gflops,"
                << "arithmetic_intensity_flop_per_byte,kernel_speedup,end_to_end_speedup,"
                << "maximum_absolute_error,mean_absolute_error\n";
     }
+    const double kernel_ns_per_element =
+        milliseconds_to_ns_per_element(options.elements, gpu_timing.kernel_ms);
+    const double end_to_end_ns_per_element =
+        milliseconds_to_ns_per_element(options.elements, gpu_timing.end_to_end_ms);
     report << std::fixed << std::setprecision(6)
            << '"' << json_escape(properties.name) << '"' << ','
            << options.elements << ','
@@ -523,6 +541,8 @@ void write_csv_report(
            << gpu_timing.kernel_ms << ','
            << gpu_timing.device_to_host_ms << ','
            << gpu_timing.end_to_end_ms << ','
+           << kernel_ns_per_element << ','
+           << end_to_end_ns_per_element << ','
            << bandwidth_gbps << ','
            << transfer_bandwidth << ','
            << gflops << ','
@@ -599,6 +619,10 @@ int main(int argc, char** argv) {
                   << "GPU kernel average: " << gpu_timing.kernel_ms << " ms\n"
                   << "GPU D2H copy: " << gpu_timing.device_to_host_ms << " ms\n"
                   << "GPU end-to-end: " << gpu_timing.end_to_end_ms << " ms\n"
+                  << "GPU kernel ns/element: "
+                  << milliseconds_to_ns_per_element(options.elements, gpu_timing.kernel_ms) << "\n"
+                  << "GPU end-to-end ns/element: "
+                  << milliseconds_to_ns_per_element(options.elements, gpu_timing.end_to_end_ms) << "\n"
                   << "GPU effective bandwidth: " << bandwidth_gbps << " GB/s\n"
                   << "Transfer bandwidth: " << transfer_gbps << " GB/s\n"
                   << "Achieved throughput: " << gflops << " GFLOP/s\n"

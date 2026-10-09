@@ -15,6 +15,7 @@ weights = weights - learning_rate * gradients
 ## What it measures
 
 - CPU time, host-to-device time, kernel time, device-to-host time, and end-to-end time
+- kernel and end-to-end nanoseconds per vector element
 - effective device and transfer bandwidth, GFLOP/s, and arithmetic intensity
 - block count, working-set size, and launched threads per SM
 - maximum and mean absolute CPU/GPU error
