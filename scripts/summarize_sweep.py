@@ -40,6 +40,21 @@ def _percentile(values: list[float], fraction: float) -> float:
     return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
+def _kernel_ns_per_element(row: dict[str, str]) -> float:
+    value = row.get("kernel_ns_per_element")
+    if value:
+        return float(value)
+    return float(row["gpu_kernel_ms"]) * 1_000_000.0 / float(row["elements"])
+
+
+def _stability_label(bandwidth_cv: float) -> str:
+    if bandwidth_cv <= 0.03:
+        return "stable"
+    if bandwidth_cv <= 0.10:
+        return "moderate"
+    return "noisy"
+
+
 def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     groups: dict[tuple[str, int, int], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
@@ -50,6 +65,7 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
     for (workload, elements, block_size), group in groups.items():
         timings = [float(row["gpu_kernel_ms"]) for row in group]
         bandwidths = [float(row["effective_bandwidth_gbps"]) for row in group]
+        kernel_latencies = [_kernel_ns_per_element(row) for row in group]
         median_bandwidth = median(bandwidths)
         bandwidth_cv = stdev(bandwidths) / median_bandwidth if len(group) > 1 and median_bandwidth else 0.0
         summaries.append(
@@ -61,7 +77,9 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "gpu_kernel_ms": f"{median(timings):.6f}",
                 "kernel_iqr_ms": f"{_percentile(timings, 0.75) - _percentile(timings, 0.25):.6f}",
                 "effective_bandwidth_gbps": f"{median_bandwidth:.6f}",
+                "kernel_ns_per_element": f"{median(kernel_latencies):.3f}",
                 "bandwidth_cv": f"{bandwidth_cv:.4f}",
+                "bandwidth_stability": _stability_label(bandwidth_cv),
                 "gflops": f"{median([float(row['gflops']) for row in group]):.6f}",
                 "kernel_speedup": f"{median([float(row['kernel_speedup']) for row in group]):.6f}",
                 "maximum_absolute_error": f"{max(float(row['maximum_absolute_error']) for row in group):.6g}",
@@ -97,8 +115,8 @@ def write_markdown(
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | CV | GFLOP/s | Max error" + efficiency_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:" + efficiency_rule + "|",
+        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + "|",
     ]
     for row in rows:
         efficiency = ""
@@ -107,8 +125,9 @@ def write_markdown(
             efficiency = f" {percentage:.1f} |"
         lines.append(
             "| {workload} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
-            "{kernel_iqr_ms} | {effective_bandwidth_gbps} | {bandwidth_cv} | {gflops} | "
-            "{maximum_absolute_error} |".format(**row) + efficiency
+            "{kernel_iqr_ms} | {effective_bandwidth_gbps} | {kernel_ns_per_element} | "
+            "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} |".format(**row) +
+            efficiency
         )
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
