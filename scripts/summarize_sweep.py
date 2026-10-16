@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import random
 from collections import defaultdict
 from pathlib import Path
 from statistics import median, stdev
@@ -47,6 +48,31 @@ def _kernel_ns_per_element(row: dict[str, str]) -> float:
     return float(row["gpu_kernel_ms"]) * 1_000_000.0 / float(row["elements"])
 
 
+def bootstrap_median_interval(
+    values: list[float],
+    *,
+    samples: int = 2000,
+    confidence: float = 0.95,
+    seed: int = 0,
+) -> tuple[float, float]:
+    if not values:
+        raise ValueError("values must not be empty")
+    if samples < 1:
+        raise ValueError("samples must be positive")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be between 0 and 1")
+    if len(values) == 1:
+        return values[0], values[0]
+
+    generator = random.Random(seed)
+    estimates = [
+        median(generator.choices(values, k=len(values)))
+        for _ in range(samples)
+    ]
+    tail = (1.0 - confidence) / 2.0
+    return _percentile(estimates, tail), _percentile(estimates, 1.0 - tail)
+
+
 def _stability_label(bandwidth_cv: float) -> str:
     if bandwidth_cv <= 0.03:
         return "stable"
@@ -67,6 +93,10 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
         bandwidths = [float(row["effective_bandwidth_gbps"]) for row in group]
         kernel_latencies = [_kernel_ns_per_element(row) for row in group]
         median_bandwidth = median(bandwidths)
+        bandwidth_ci_low, bandwidth_ci_high = bootstrap_median_interval(
+            bandwidths,
+            seed=elements + block_size,
+        )
         bandwidth_cv = stdev(bandwidths) / median_bandwidth if len(group) > 1 and median_bandwidth else 0.0
         summaries.append(
             {
@@ -77,6 +107,8 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "gpu_kernel_ms": f"{median(timings):.6f}",
                 "kernel_iqr_ms": f"{_percentile(timings, 0.75) - _percentile(timings, 0.25):.6f}",
                 "effective_bandwidth_gbps": f"{median_bandwidth:.6f}",
+                "bandwidth_ci95_low_gbps": f"{bandwidth_ci_low:.6f}",
+                "bandwidth_ci95_high_gbps": f"{bandwidth_ci_high:.6f}",
                 "kernel_ns_per_element": f"{median(kernel_latencies):.3f}",
                 "bandwidth_cv": f"{bandwidth_cv:.4f}",
                 "bandwidth_stability": _stability_label(bandwidth_cv),
@@ -115,8 +147,8 @@ def write_markdown(
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + "|",
+        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + "|",
     ]
     for row in rows:
         efficiency = ""
@@ -125,7 +157,8 @@ def write_markdown(
             efficiency = f" {percentage:.1f} |"
         lines.append(
             "| {workload} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
-            "{kernel_iqr_ms} | {effective_bandwidth_gbps} | {kernel_ns_per_element} | "
+            "{kernel_iqr_ms} | {effective_bandwidth_gbps} | "
+            "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {kernel_ns_per_element} | "
             "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} |".format(**row) +
             efficiency
         )

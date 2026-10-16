@@ -74,7 +74,7 @@ python3 scripts/summarize_sweep.py \
   --peak-bandwidth-gbps 1008
 ```
 
-Repeated runs are aggregated by configuration. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports timing IQR, nanoseconds per element, bandwidth coefficient of variation, and a stability label, which makes noisy launch configurations easier to spot. Supplying the GPU's theoretical memory bandwidth also reports the fraction reached by this memory-bound kernel.
+Repeated runs are aggregated by configuration. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports a bootstrap confidence interval, timing IQR, nanoseconds per element, bandwidth coefficient of variation, and a stability label. Supplying the GPU's theoretical memory bandwidth also reports the fraction reached by this memory-bound kernel.
 
 ## Project layout
 

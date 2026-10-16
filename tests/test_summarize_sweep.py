@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.summarize_sweep import best_by_problem_size, summarize_configurations, write_markdown
+from scripts.summarize_sweep import (
+    best_by_problem_size,
+    bootstrap_median_interval,
+    summarize_configurations,
+    write_markdown,
+)
 
 
 def _row(block: int, bandwidth: float, kernel_ms: float) -> dict[str, str]:
@@ -32,6 +37,16 @@ def test_configuration_summary_uses_robust_statistics() -> None:
     assert float(summary["kernel_ns_per_element"]) == pytest.approx(1757.8125, rel=1e-3)
     assert float(summary["kernel_iqr_ms"]) > 0.0
     assert summary["bandwidth_stability"] == "noisy"
+    assert float(summary["bandwidth_ci95_low_gbps"]) <= 102.0
+    assert float(summary["bandwidth_ci95_high_gbps"]) >= 102.0
+
+
+def test_bootstrap_median_interval_is_reproducible() -> None:
+    first = bootstrap_median_interval([95.0, 100.0, 102.0, 104.0, 300.0], seed=8)
+    second = bootstrap_median_interval([95.0, 100.0, 102.0, 104.0, 300.0], seed=8)
+
+    assert first == second
+    assert first[0] <= 102.0 <= first[1]
 
 
 def test_best_block_uses_median_bandwidth_instead_of_single_outlier() -> None:
@@ -55,6 +70,7 @@ def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:
     text = output.read_text(encoding="utf-8")
     assert "Peak bandwidth %" in text
     assert "Kernel ns/elem" in text
+    assert "95% CI GB/s" in text
     assert "50.0" in text
 
     with pytest.raises(ValueError, match="peak bandwidth"):
