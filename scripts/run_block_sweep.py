@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import subprocess
 from itertools import product
 from pathlib import Path
@@ -15,6 +16,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="randomize run order to reduce temperature and boost-clock bias",
+    )
     parser.add_argument("--workload", choices=["saxpy", "sgd-step"], default="saxpy")
     parser.add_argument("--alpha", type=float, default=2.0)
     parser.add_argument("--learning-rate", type=float, default=0.01)
@@ -36,13 +42,18 @@ def run_sweep(args: argparse.Namespace) -> None:
         raise ValueError("tolerance must be positive")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    configurations = list(product(args.elements, args.blocks))
-    total_runs = len(configurations) * args.repeats
+    configurations = [
+        (repeat, elements, block_size)
+        for repeat in range(1, args.repeats + 1)
+        for elements, block_size in product(args.elements, args.blocks)
+    ]
+    if args.shuffle:
+        random.Random(args.seed).shuffle(configurations)
+    total_runs = len(configurations)
     run_number = 0
-    for repeat in range(1, args.repeats + 1):
-        for elements, block_size in configurations:
-            run_number += 1
-            command = [
+    for repeat, elements, block_size in configurations:
+        run_number += 1
+        command = [
                 str(args.binary),
                 "--elements",
                 str(elements),
@@ -64,12 +75,12 @@ def run_sweep(args: argparse.Namespace) -> None:
                 str(args.seed),
                 "--csv-output",
                 str(args.output),
-            ]
-            print(
-                f"run {run_number}/{total_runs} repeat={repeat} "
-                f"elements={elements} block_size={block_size}"
-            )
-            subprocess.run(command, check=True)
+        ]
+        print(
+            f"run {run_number}/{total_runs} repeat={repeat} "
+            f"elements={elements} block_size={block_size}"
+        )
+        subprocess.run(command, check=True)
 
 
 if __name__ == "__main__":
