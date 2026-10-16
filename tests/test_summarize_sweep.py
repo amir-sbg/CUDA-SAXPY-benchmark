@@ -20,6 +20,7 @@ def _row(block: int, bandwidth: float, kernel_ms: float) -> dict[str, str]:
         "gpu_kernel_ms": str(kernel_ms),
         "effective_bandwidth_gbps": str(bandwidth),
         "gflops": str(bandwidth / 6),
+        "arithmetic_intensity_flop_per_byte": str(1 / 6),
         "kernel_speedup": "2.0",
         "maximum_absolute_error": "1e-7",
         "mean_absolute_error": "1e-8",
@@ -75,3 +76,21 @@ def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="peak bandwidth"):
         write_markdown(summary, tmp_path / "bad.md", peak_bandwidth_gbps=0)
+
+
+def test_markdown_can_report_roofline_utilization(tmp_path: Path) -> None:
+    summary = best_by_problem_size([_row(256, 120, 1.0)])
+    output = write_markdown(
+        summary,
+        tmp_path / "roofline.md",
+        peak_bandwidth_gbps=240.0,
+        peak_gflops=10_000.0,
+    )
+
+    text = output.read_text(encoding="utf-8")
+    assert "Roofline %" in text
+    assert "memory" in text
+    assert "50.0" in text
+
+    with pytest.raises(ValueError, match="peak bandwidth"):
+        write_markdown(summary, tmp_path / "bad.md", peak_gflops=10_000.0)

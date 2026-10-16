@@ -15,6 +15,7 @@ REQUIRED_COLUMNS = {
     "gpu_kernel_ms",
     "effective_bandwidth_gbps",
     "gflops",
+    "arithmetic_intensity_flop_per_byte",
     "kernel_speedup",
     "maximum_absolute_error",
     "mean_absolute_error",
@@ -113,6 +114,7 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "bandwidth_cv": f"{bandwidth_cv:.4f}",
                 "bandwidth_stability": _stability_label(bandwidth_cv),
                 "gflops": f"{median([float(row['gflops']) for row in group]):.6f}",
+                "arithmetic_intensity_flop_per_byte": f"{median([float(row['arithmetic_intensity_flop_per_byte']) for row in group]):.6f}",
                 "kernel_speedup": f"{median([float(row['kernel_speedup']) for row in group]):.6f}",
                 "maximum_absolute_error": f"{max(float(row['maximum_absolute_error']) for row in group):.6g}",
                 "mean_absolute_error": f"{median([float(row['mean_absolute_error']) for row in group]):.6g}",
@@ -138,29 +140,45 @@ def write_markdown(
     rows: list[dict[str, str]],
     output: Path,
     peak_bandwidth_gbps: float | None = None,
+    peak_gflops: float | None = None,
 ) -> Path:
     if peak_bandwidth_gbps is not None and peak_bandwidth_gbps <= 0:
         raise ValueError("peak bandwidth must be positive")
+    if peak_gflops is not None and peak_gflops <= 0:
+        raise ValueError("peak GFLOP/s must be positive")
+    if peak_gflops is not None and peak_bandwidth_gbps is None:
+        raise ValueError("peak bandwidth is required for roofline analysis")
     output.parent.mkdir(parents=True, exist_ok=True)
     efficiency_header = " | Peak bandwidth %" if peak_bandwidth_gbps is not None else ""
     efficiency_rule = "|---:" if peak_bandwidth_gbps is not None else ""
+    roofline_header = " | Roofline % | Bound" if peak_gflops is not None else ""
+    roofline_rule = "|---:|---" if peak_gflops is not None else ""
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + "|",
+        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + roofline_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + roofline_rule + "|",
     ]
     for row in rows:
         efficiency = ""
         if peak_bandwidth_gbps is not None:
             percentage = 100.0 * float(row["effective_bandwidth_gbps"]) / peak_bandwidth_gbps
             efficiency = f" {percentage:.1f} |"
+        roofline = ""
+        if peak_gflops is not None and peak_bandwidth_gbps is not None:
+            memory_ceiling = peak_bandwidth_gbps * float(
+                row["arithmetic_intensity_flop_per_byte"]
+            )
+            ceiling = min(peak_gflops, memory_ceiling)
+            percentage = 100.0 * float(row["gflops"]) / ceiling
+            bound = "memory" if memory_ceiling <= peak_gflops else "compute"
+            roofline = f" {percentage:.1f} | {bound} |"
         lines.append(
             "| {workload} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
             "{kernel_iqr_ms} | {effective_bandwidth_gbps} | "
             "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {kernel_ns_per_element} | "
             "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} |".format(**row) +
-            efficiency
+            efficiency + roofline
         )
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
@@ -176,13 +194,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="optional theoretical device bandwidth for an efficiency estimate",
     )
+    parser.add_argument(
+        "--peak-gflops",
+        type=float,
+        help="optional theoretical FP32 throughput for roofline utilization",
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     rows = read_rows(args.input)
-    write_markdown(best_by_problem_size(rows), args.output, args.peak_bandwidth_gbps)
+    write_markdown(
+        best_by_problem_size(rows),
+        args.output,
+        args.peak_bandwidth_gbps,
+        args.peak_gflops,
+    )
     print(f"wrote {args.output}")
 
 
