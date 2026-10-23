@@ -15,6 +15,8 @@ from scripts.summarize_sweep import (
 def _row(block: int, bandwidth: float, kernel_ms: float) -> dict[str, str]:
     return {
         "workload": "saxpy",
+        "effective_alpha": "2.0",
+        "tolerance": "1e-5",
         "elements": "1024",
         "block_size": str(block),
         "gpu_kernel_ms": str(kernel_ms),
@@ -62,6 +64,29 @@ def test_best_block_uses_median_bandwidth_instead_of_single_outlier() -> None:
     best = best_by_problem_size(rows)
 
     assert best[0]["block_size"] == "128"
+
+
+def test_summary_keeps_optimizer_step_sizes_separate() -> None:
+    small_step = _row(128, 100, 1.0)
+    large_step = _row(128, 105, 0.9)
+    small_step["workload"] = "sgd-step"
+    large_step["workload"] = "sgd-step"
+    small_step["effective_alpha"] = "-0.001"
+    large_step["effective_alpha"] = "-0.1"
+
+    summary = summarize_configurations([small_step, large_step])
+
+    assert len(summary) == 2
+    assert {row["effective_alpha"] for row in summary} == {"-0.001", "-0.1"}
+
+
+def test_summary_reports_numerical_headroom() -> None:
+    row = _row(128, 100, 1.0)
+    row["maximum_absolute_error"] = "2e-6"
+
+    summary = summarize_configurations([row])[0]
+
+    assert float(summary["error_to_tolerance_ratio"]) == pytest.approx(0.2)
 
 
 def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:

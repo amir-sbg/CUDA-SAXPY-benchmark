@@ -75,7 +75,7 @@ python3 scripts/summarize_sweep.py \
   --peak-gflops 35000
 ```
 
-Repeated runs are aggregated by configuration. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports a bootstrap confidence interval, timing IQR, nanoseconds per element, bandwidth coefficient of variation, and a stability label. Supplying theoretical bandwidth and FP32 throughput adds a simple roofline estimate, including achieved utilization and whether the measured workload is memory- or compute-bound.
+Repeated runs are aggregated by configuration and effective update scale, so optimizer steps with different learning rates are never mixed. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports a bootstrap confidence interval, timing IQR, nanoseconds per element, bandwidth coefficient of variation, numerical error relative to tolerance, and a stability label. Supplying theoretical bandwidth and FP32 throughput adds a simple roofline estimate, including achieved utilization and whether the measured workload is memory- or compute-bound.
 
 ## Project layout
 

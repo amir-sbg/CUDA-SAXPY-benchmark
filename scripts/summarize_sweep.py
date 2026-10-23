@@ -10,6 +10,8 @@ from statistics import median, stdev
 
 REQUIRED_COLUMNS = {
     "workload",
+    "effective_alpha",
+    "tolerance",
     "elements",
     "block_size",
     "gpu_kernel_ms",
@@ -83,13 +85,18 @@ def _stability_label(bandwidth_cv: float) -> str:
 
 
 def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    groups: dict[tuple[str, int, int], list[dict[str, str]]] = defaultdict(list)
+    groups: dict[tuple[str, float, int, int], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
-        key = (row["workload"], int(row["elements"]), int(row["block_size"]))
+        key = (
+            row["workload"],
+            float(row["effective_alpha"]),
+            int(row["elements"]),
+            int(row["block_size"]),
+        )
         groups[key].append(row)
 
     summaries = []
-    for (workload, elements, block_size), group in groups.items():
+    for (workload, effective_alpha, elements, block_size), group in groups.items():
         timings = [float(row["gpu_kernel_ms"]) for row in group]
         bandwidths = [float(row["effective_bandwidth_gbps"]) for row in group]
         kernel_latencies = [_kernel_ns_per_element(row) for row in group]
@@ -99,9 +106,12 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
             seed=elements + block_size,
         )
         bandwidth_cv = stdev(bandwidths) / median_bandwidth if len(group) > 1 and median_bandwidth else 0.0
+        maximum_error = max(float(row["maximum_absolute_error"]) for row in group)
+        strictest_tolerance = min(float(row["tolerance"]) for row in group)
         summaries.append(
             {
                 "workload": workload,
+                "effective_alpha": f"{effective_alpha:.8g}",
                 "elements": str(elements),
                 "block_size": str(block_size),
                 "runs": str(len(group)),
@@ -116,24 +126,35 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "gflops": f"{median([float(row['gflops']) for row in group]):.6f}",
                 "arithmetic_intensity_flop_per_byte": f"{median([float(row['arithmetic_intensity_flop_per_byte']) for row in group]):.6f}",
                 "kernel_speedup": f"{median([float(row['kernel_speedup']) for row in group]):.6f}",
-                "maximum_absolute_error": f"{max(float(row['maximum_absolute_error']) for row in group):.6g}",
+                "maximum_absolute_error": f"{maximum_error:.6g}",
                 "mean_absolute_error": f"{median([float(row['mean_absolute_error']) for row in group]):.6g}",
+                "error_to_tolerance_ratio": f"{maximum_error / strictest_tolerance:.6g}",
             }
         )
     return summaries
 
 
 def best_by_problem_size(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    groups: dict[tuple[str, int], list[dict[str, str]]] = defaultdict(list)
+    groups: dict[tuple[str, float, int], list[dict[str, str]]] = defaultdict(list)
     for row in summarize_configurations(rows):
-        groups[(row["workload"], int(row["elements"]))].append(row)
+        groups[(row["workload"], float(row["effective_alpha"]), int(row["elements"]))].append(row)
 
     best_rows = []
     for key, group in groups.items():
-        workload, elements = key
+        workload, effective_alpha, elements = key
         best = max(group, key=lambda row: float(row["effective_bandwidth_gbps"]))
-        best_rows.append({**best, "workload": workload, "elements": str(elements)})
-    return sorted(best_rows, key=lambda row: (row["workload"], int(row["elements"])))
+        best_rows.append(
+            {
+                **best,
+                "workload": workload,
+                "effective_alpha": f"{effective_alpha:.8g}",
+                "elements": str(elements),
+            }
+        )
+    return sorted(
+        best_rows,
+        key=lambda row: (row["workload"], float(row["effective_alpha"]), int(row["elements"])),
+    )
 
 
 def write_markdown(
@@ -156,8 +177,8 @@ def write_markdown(
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error" + efficiency_header + roofline_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:" + efficiency_rule + roofline_rule + "|",
+        "| Workload | Effective alpha | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error | Error/tolerance" + efficiency_header + roofline_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:" + efficiency_rule + roofline_rule + "|",
     ]
     for row in rows:
         efficiency = ""
@@ -174,10 +195,11 @@ def write_markdown(
             bound = "memory" if memory_ceiling <= peak_gflops else "compute"
             roofline = f" {percentage:.1f} | {bound} |"
         lines.append(
-            "| {workload} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
+            "| {workload} | {effective_alpha} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
             "{kernel_iqr_ms} | {effective_bandwidth_gbps} | "
             "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {kernel_ns_per_element} | "
-            "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} |".format(**row) +
+            "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} | "
+            "{error_to_tolerance_ratio} |".format(**row) +
             efficiency + roofline
         )
     lines.append("")
