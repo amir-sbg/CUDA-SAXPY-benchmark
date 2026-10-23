@@ -66,6 +66,7 @@ python3 scripts/run_block_sweep.py \
   --repeats 5 \
   --shuffle \
   --workload sgd-step \
+  --learning-rates 0.1 0.01 0.001 \
   --output reports/block_sweep.csv
 
 python3 scripts/summarize_sweep.py \

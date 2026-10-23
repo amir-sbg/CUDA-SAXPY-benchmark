@@ -24,6 +24,7 @@ def _args(tmp_path: Path, **overrides) -> Namespace:
         "workload": "saxpy",
         "alpha": 2.0,
         "learning_rate": 0.01,
+        "learning_rates": None,
         "tolerance": 1e-5,
         "seed": 7,
     }
@@ -63,3 +64,27 @@ def test_shuffled_sweep_is_seeded_and_keeps_every_configuration(tmp_path: Path) 
         for command in first_commands
     }
     assert observed == {("1024", "128"), ("1024", "256"), ("2048", "128"), ("2048", "256")}
+
+
+def test_optimizer_sweep_runs_each_learning_rate(tmp_path: Path) -> None:
+    args = _args(
+        tmp_path,
+        workload="sgd-step",
+        learning_rates=[0.1, 0.01, 0.001],
+        repeats=1,
+    )
+
+    with patch("scripts.run_block_sweep.subprocess.run") as run:
+        run_sweep(args)
+
+    assert run.call_count == 12
+    observed = {
+        command[command.index("--learning-rate") + 1]
+        for command in (call.args[0] for call in run.call_args_list)
+    }
+    assert observed == {"0.1", "0.01", "0.001"}
+
+
+def test_learning_rate_grid_is_rejected_for_plain_saxpy(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="sgd-step"):
+        run_sweep(_args(tmp_path, learning_rates=[0.1, 0.01]))

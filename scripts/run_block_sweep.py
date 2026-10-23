@@ -24,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workload", choices=["saxpy", "sgd-step"], default="saxpy")
     parser.add_argument("--alpha", type=float, default=2.0)
     parser.add_argument("--learning-rate", type=float, default=0.01)
+    parser.add_argument(
+        "--learning-rates",
+        nargs="+",
+        type=float,
+        help="learning-rate grid for the sgd-step workload",
+    )
     parser.add_argument("--tolerance", type=float, default=1e-5)
     parser.add_argument("--seed", type=int, default=7)
     return parser
@@ -40,18 +46,28 @@ def run_sweep(args: argparse.Namespace) -> None:
         raise ValueError("warmup must be non-negative and repeats must be positive")
     if args.tolerance <= 0:
         raise ValueError("tolerance must be positive")
+    learning_rates = getattr(args, "learning_rates", None)
+    if learning_rates is not None and args.workload != "sgd-step":
+        raise ValueError("learning-rates can only be swept with the sgd-step workload")
+    update_scales = learning_rates or [args.learning_rate]
+    if any(rate <= 0 for rate in update_scales):
+        raise ValueError("learning rates must be positive")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     configurations = [
-        (repeat, elements, block_size)
+        (repeat, elements, block_size, learning_rate)
         for repeat in range(1, args.repeats + 1)
-        for elements, block_size in product(args.elements, args.blocks)
+        for elements, block_size, learning_rate in product(
+            args.elements,
+            args.blocks,
+            update_scales,
+        )
     ]
     if args.shuffle:
         random.Random(args.seed).shuffle(configurations)
     total_runs = len(configurations)
     run_number = 0
-    for repeat, elements, block_size in configurations:
+    for repeat, elements, block_size, learning_rate in configurations:
         run_number += 1
         command = [
                 str(args.binary),
@@ -68,7 +84,7 @@ def run_sweep(args: argparse.Namespace) -> None:
                 "--alpha",
                 str(args.alpha),
                 "--learning-rate",
-                str(args.learning_rate),
+                str(learning_rate),
                 "--tolerance",
                 str(args.tolerance),
                 "--seed",
@@ -78,7 +94,7 @@ def run_sweep(args: argparse.Namespace) -> None:
         ]
         print(
             f"run {run_number}/{total_runs} repeat={repeat} "
-            f"elements={elements} block_size={block_size}"
+            f"elements={elements} block_size={block_size} learning_rate={learning_rate:g}"
         )
         subprocess.run(command, check=True)
 
