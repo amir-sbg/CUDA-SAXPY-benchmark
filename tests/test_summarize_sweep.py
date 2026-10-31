@@ -7,6 +7,7 @@ import pytest
 from scripts.summarize_sweep import (
     best_by_problem_size,
     bootstrap_median_interval,
+    compare_summaries,
     summarize_configurations,
     write_markdown,
 )
@@ -64,6 +65,18 @@ def test_best_block_uses_median_bandwidth_instead_of_single_outlier() -> None:
     best = best_by_problem_size(rows)
 
     assert best[0]["block_size"] == "128"
+
+
+def test_summary_comparison_flags_bandwidth_regression() -> None:
+    baseline = summarize_configurations([_row(256, 120, 1.0)])
+    candidate = summarize_configurations([_row(256, 102, 1.2)])
+
+    comparison = compare_summaries(baseline, candidate, regression_threshold=0.10)
+
+    assert len(comparison) == 1
+    assert comparison[0]["status"] == "regression"
+    assert float(comparison[0]["bandwidth_delta_percent"]) == pytest.approx(-15.0)
+    assert float(comparison[0]["kernel_latency_delta_percent"]) == pytest.approx(20.0)
 
 
 def test_summary_keeps_optimizer_step_sizes_separate() -> None:

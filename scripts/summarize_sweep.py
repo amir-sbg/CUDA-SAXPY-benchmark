@@ -157,6 +157,41 @@ def best_by_problem_size(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     )
 
 
+def compare_summaries(
+    baseline: list[dict[str, str]],
+    candidate: list[dict[str, str]],
+    regression_threshold: float = 0.05,
+) -> list[dict[str, str]]:
+    if not 0.0 <= regression_threshold < 1.0:
+        raise ValueError("regression_threshold must be in [0, 1)")
+    key_fields = ("workload", "effective_alpha", "elements", "block_size")
+    baseline_by_key = {tuple(row[field] for field in key_fields): row for row in baseline}
+    rows = []
+    for current in candidate:
+        key = tuple(current[field] for field in key_fields)
+        previous = baseline_by_key.get(key)
+        if previous is None:
+            continue
+        old_bandwidth = float(previous["effective_bandwidth_gbps"])
+        new_bandwidth = float(current["effective_bandwidth_gbps"])
+        old_latency = float(previous["gpu_kernel_ms"])
+        new_latency = float(current["gpu_kernel_ms"])
+        bandwidth_delta = (new_bandwidth - old_bandwidth) / old_bandwidth
+        latency_delta = (new_latency - old_latency) / old_latency
+        status = "regression" if bandwidth_delta < -regression_threshold else "pass"
+        rows.append(
+            {
+                **{field: current[field] for field in key_fields},
+                "baseline_bandwidth_gbps": f"{old_bandwidth:.6f}",
+                "candidate_bandwidth_gbps": f"{new_bandwidth:.6f}",
+                "bandwidth_delta_percent": f"{100.0 * bandwidth_delta:.3f}",
+                "kernel_latency_delta_percent": f"{100.0 * latency_delta:.3f}",
+                "status": status,
+            }
+        )
+    return rows
+
+
 def write_markdown(
     rows: list[dict[str, str]],
     output: Path,
