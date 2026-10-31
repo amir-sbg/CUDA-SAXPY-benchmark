@@ -137,6 +137,7 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
         bandwidth_cv = stdev(bandwidths) / median_bandwidth if len(group) > 1 and median_bandwidth else 0.0
         maximum_error = max(float(row["maximum_absolute_error"]) for row in group)
         strictest_tolerance = min(float(row["tolerance"]) for row in group)
+        error_ratio = maximum_error / strictest_tolerance
         summaries.append(
             {
                 "workload": workload,
@@ -157,7 +158,8 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "kernel_speedup": f"{median([float(row['kernel_speedup']) for row in group]):.6f}",
                 "maximum_absolute_error": f"{maximum_error:.6g}",
                 "mean_absolute_error": f"{median([float(row['mean_absolute_error']) for row in group]):.6g}",
-                "error_to_tolerance_ratio": f"{maximum_error / strictest_tolerance:.6g}",
+                "error_to_tolerance_ratio": f"{error_ratio:.6g}",
+                "numerical_status": "pass" if error_ratio <= 1.0 else "fail",
             }
         )
     return summaries
@@ -241,8 +243,8 @@ def write_markdown(
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Effective alpha | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error | Error/tolerance" + efficiency_header + roofline_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:" + efficiency_rule + roofline_rule + "|",
+        "| Workload | Effective alpha | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error | Error/tolerance | Correctness" + efficiency_header + roofline_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---" + efficiency_rule + roofline_rule + "|",
     ]
     for row in rows:
         efficiency = ""
@@ -263,7 +265,7 @@ def write_markdown(
             "{kernel_iqr_ms} | {effective_bandwidth_gbps} | "
             "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {kernel_ns_per_element} | "
             "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} | "
-            "{error_to_tolerance_ratio} |".format(**row) +
+            "{error_to_tolerance_ratio} | {numerical_status} |".format(**row) +
             efficiency + roofline
         )
     lines.append("")

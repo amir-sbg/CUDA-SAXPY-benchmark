@@ -114,6 +114,10 @@ def test_summary_reports_numerical_headroom() -> None:
     summary = summarize_configurations([row])[0]
 
     assert float(summary["error_to_tolerance_ratio"]) == pytest.approx(0.2)
+    assert summary["numerical_status"] == "pass"
+
+    row["maximum_absolute_error"] = "2e-5"
+    assert summarize_configurations([row])[0]["numerical_status"] == "fail"
 
 
 def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:
@@ -124,6 +128,7 @@ def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:
     assert "Peak bandwidth %" in text
     assert "Kernel ns/elem" in text
     assert "95% CI GB/s" in text
+    assert "Correctness" in text
     assert "50.0" in text
 
     with pytest.raises(ValueError, match="peak bandwidth"):
