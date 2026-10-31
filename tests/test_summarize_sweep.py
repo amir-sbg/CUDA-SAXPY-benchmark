@@ -7,6 +7,7 @@ import pytest
 from scripts.summarize_sweep import (
     best_by_problem_size,
     bootstrap_median_interval,
+    bootstrap_paired_bandwidth_delta,
     compare_summaries,
     summarize_configurations,
     write_markdown,
@@ -51,6 +52,19 @@ def test_bootstrap_median_interval_is_reproducible() -> None:
 
     assert first == second
     assert first[0] <= 102.0 <= first[1]
+
+
+def test_paired_bootstrap_detects_consistent_bandwidth_gain() -> None:
+    report = bootstrap_paired_bandwidth_delta(
+        [100.0, 102.0, 98.0, 101.0],
+        [110.0, 111.0, 108.0, 112.0],
+        samples=500,
+        seed=4,
+    )
+
+    assert report["ci_low_gbps"] > 0
+    assert report["probability_improves"] == pytest.approx(1.0)
+    assert report["ci_low_gbps"] <= report["median_delta_gbps"] <= report["ci_high_gbps"]
 
 
 def test_best_block_uses_median_bandwidth_instead_of_single_outlier() -> None:

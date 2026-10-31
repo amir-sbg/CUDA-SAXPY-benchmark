@@ -76,6 +76,35 @@ def bootstrap_median_interval(
     return _percentile(estimates, tail), _percentile(estimates, 1.0 - tail)
 
 
+def bootstrap_paired_bandwidth_delta(
+    baseline: list[float],
+    candidate: list[float],
+    *,
+    samples: int = 2000,
+    confidence: float = 0.95,
+    seed: int = 0,
+) -> dict[str, float]:
+    if not baseline or len(baseline) != len(candidate):
+        raise ValueError("baseline and candidate must be non-empty paired samples")
+    if samples < 1 or not 0.0 < confidence < 1.0:
+        raise ValueError("invalid bootstrap settings")
+
+    generator = random.Random(seed)
+    deltas = []
+    for _ in range(samples):
+        indices = [generator.randrange(len(baseline)) for _ in baseline]
+        old = median([baseline[index] for index in indices])
+        new = median([candidate[index] for index in indices])
+        deltas.append(new - old)
+    tail = (1.0 - confidence) / 2.0
+    return {
+        "median_delta_gbps": median(deltas),
+        "ci_low_gbps": _percentile(deltas, tail),
+        "ci_high_gbps": _percentile(deltas, 1.0 - tail),
+        "probability_improves": sum(delta > 0 for delta in deltas) / len(deltas),
+    }
+
+
 def _stability_label(bandwidth_cv: float) -> str:
     if bandwidth_cv <= 0.03:
         return "stable"
