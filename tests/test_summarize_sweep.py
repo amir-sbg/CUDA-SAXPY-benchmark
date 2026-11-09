@@ -91,8 +91,26 @@ def test_summary_comparison_flags_bandwidth_regression() -> None:
 
     assert len(comparison) == 1
     assert comparison[0]["status"] == "regression"
+    assert comparison[0]["confidence_status"] == "regression"
     assert float(comparison[0]["bandwidth_delta_percent"]) == pytest.approx(-15.0)
     assert float(comparison[0]["kernel_latency_delta_percent"]) == pytest.approx(20.0)
+
+
+def test_summary_comparison_marks_overlapping_intervals_inconclusive() -> None:
+    baseline = summarize_configurations([
+        _row(256, 100, 1.0),
+        _row(256, 110, 0.9),
+        _row(256, 120, 0.8),
+    ])
+    candidate = summarize_configurations([
+        _row(256, 104, 1.0),
+        _row(256, 108, 0.9),
+        _row(256, 112, 0.8),
+    ])
+
+    comparison = compare_summaries(baseline, candidate, regression_threshold=0.05)
+
+    assert comparison[0]["confidence_status"] == "inconclusive"
 
 
 def test_summary_keeps_optimizer_step_sizes_separate() -> None:

@@ -222,6 +222,16 @@ def compare_summaries(
         bandwidth_delta = (new_bandwidth - old_bandwidth) / old_bandwidth
         latency_delta = (new_latency - old_latency) / old_latency
         status = "regression" if bandwidth_delta < -regression_threshold else "pass"
+        baseline_ci_low = float(previous["bandwidth_ci95_low_gbps"])
+        baseline_ci_high = float(previous["bandwidth_ci95_high_gbps"])
+        candidate_ci_low = float(current["bandwidth_ci95_low_gbps"])
+        candidate_ci_high = float(current["bandwidth_ci95_high_gbps"])
+        if candidate_ci_high < baseline_ci_low * (1.0 - regression_threshold):
+            confidence_status = "regression"
+        elif candidate_ci_low > baseline_ci_high * (1.0 + regression_threshold):
+            confidence_status = "improvement"
+        else:
+            confidence_status = "inconclusive"
         rows.append(
             {
                 **{field: current[field] for field in key_fields},
@@ -230,6 +240,7 @@ def compare_summaries(
                 "bandwidth_delta_percent": f"{100.0 * bandwidth_delta:.3f}",
                 "kernel_latency_delta_percent": f"{100.0 * latency_delta:.3f}",
                 "status": status,
+                "confidence_status": confidence_status,
             }
         )
     return rows

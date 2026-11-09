@@ -77,7 +77,7 @@ python3 scripts/summarize_sweep.py \
   --peak-gflops 35000
 ```
 
-Repeated runs are aggregated by configuration and effective update scale, so optimizer steps with different learning rates are never mixed. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports a bootstrap confidence interval, timing IQR, nanoseconds per element, bandwidth coefficient of variation, numerical correctness relative to tolerance, and a stability label. Helpers for paired bootstrap deltas and baseline/candidate regression checks support repeatable optimization work instead of relying on a single timing. Supplying theoretical bandwidth and FP32 throughput adds a simple roofline estimate, including achieved utilization and whether the measured workload is memory- or compute-bound.
+Repeated runs are aggregated by configuration and effective update scale, so optimizer steps with different learning rates are never mixed. `--shuffle` randomizes the seeded run order so thermal drift and changing boost clocks are less likely to favor one block size. The summary selects the block size with the highest median bandwidth and reports bootstrap confidence intervals, timing IQR, median absolute deviation, outlier counts, nanoseconds per element, numerical correctness, and a stability label. Baseline comparisons distinguish point-estimate regressions from changes supported by non-overlapping uncertainty intervals. Supplying theoretical bandwidth and FP32 throughput adds a simple roofline estimate, including achieved utilization and whether the workload is memory- or compute-bound.
 
 ## Project layout
 
