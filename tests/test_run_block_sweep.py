@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from scripts.run_block_sweep import run_sweep
+from scripts.run_block_sweep import build_command, run_sweep
 
 
 def _args(tmp_path: Path, **overrides) -> Namespace:
@@ -88,3 +88,27 @@ def test_optimizer_sweep_runs_each_learning_rate(tmp_path: Path) -> None:
 def test_learning_rate_grid_is_rejected_for_plain_saxpy(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="sgd-step"):
         run_sweep(_args(tmp_path, learning_rates=[0.1, 0.01]))
+
+
+def test_command_builder_keeps_optimizer_parameters_explicit(tmp_path: Path) -> None:
+    args = _args(tmp_path, workload="sgd-step", alpha=3.0)
+
+    command = build_command(args, elements=4096, block_size=256, learning_rate=0.005)
+
+    assert command[command.index("--workload") + 1] == "sgd-step"
+    assert command[command.index("--alpha") + 1] == "3.0"
+    assert command[command.index("--learning-rate") + 1] == "0.005"
+
+
+def test_dry_run_does_not_require_or_launch_binary(tmp_path: Path) -> None:
+    args = _args(
+        tmp_path,
+        binary=tmp_path / "missing-binary",
+        repeats=1,
+        dry_run=True,
+    )
+
+    with patch("scripts.run_block_sweep.subprocess.run") as run:
+        run_sweep(args)
+
+    run.assert_not_called()

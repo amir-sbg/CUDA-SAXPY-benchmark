@@ -32,11 +32,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tolerance", type=float, default=1e-5)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the complete sweep plan without launching the benchmark",
+    )
     return parser
 
 
+def build_command(
+    args: argparse.Namespace,
+    *,
+    elements: int,
+    block_size: int,
+    learning_rate: float,
+) -> list[str]:
+    return [
+        str(args.binary),
+        "--elements", str(elements),
+        "--iterations", str(args.iterations),
+        "--warmup", str(args.warmup),
+        "--block-size", str(block_size),
+        "--workload", args.workload,
+        "--alpha", str(args.alpha),
+        "--learning-rate", str(learning_rate),
+        "--tolerance", str(args.tolerance),
+        "--seed", str(args.seed),
+        "--csv-output", str(args.output),
+    ]
+
+
 def run_sweep(args: argparse.Namespace) -> None:
-    if not args.binary.exists():
+    dry_run = getattr(args, "dry_run", False)
+    if not dry_run and not args.binary.exists():
         raise FileNotFoundError(f"benchmark binary was not found: {args.binary}")
     if any(block < 1 for block in args.blocks):
         raise ValueError("all block sizes must be positive")
@@ -69,34 +97,20 @@ def run_sweep(args: argparse.Namespace) -> None:
     run_number = 0
     for repeat, elements, block_size, learning_rate in configurations:
         run_number += 1
-        command = [
-                str(args.binary),
-                "--elements",
-                str(elements),
-                "--iterations",
-                str(args.iterations),
-                "--warmup",
-                str(args.warmup),
-                "--block-size",
-                str(block_size),
-                "--workload",
-                args.workload,
-                "--alpha",
-                str(args.alpha),
-                "--learning-rate",
-                str(learning_rate),
-                "--tolerance",
-                str(args.tolerance),
-                "--seed",
-                str(args.seed),
-                "--csv-output",
-                str(args.output),
-        ]
+        command = build_command(
+            args,
+            elements=elements,
+            block_size=block_size,
+            learning_rate=learning_rate,
+        )
         print(
             f"run {run_number}/{total_runs} repeat={repeat} "
             f"elements={elements} block_size={block_size} learning_rate={learning_rate:g}"
         )
-        subprocess.run(command, check=True)
+        if dry_run:
+            print("  " + " ".join(command))
+        else:
+            subprocess.run(command, check=True)
 
 
 if __name__ == "__main__":
