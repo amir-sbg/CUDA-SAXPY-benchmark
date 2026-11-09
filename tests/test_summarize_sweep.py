@@ -42,6 +42,8 @@ def test_configuration_summary_uses_robust_statistics() -> None:
     assert float(summary["kernel_ns_per_element"]) == pytest.approx(1757.8125, rel=1e-3)
     assert float(summary["kernel_iqr_ms"]) > 0.0
     assert summary["bandwidth_stability"] == "noisy"
+    assert float(summary["bandwidth_mad_gbps"]) == 2.0
+    assert summary["bandwidth_outlier_runs"] == "1"
     assert float(summary["bandwidth_ci95_low_gbps"]) <= 102.0
     assert float(summary["bandwidth_ci95_high_gbps"]) >= 102.0
 
@@ -128,6 +130,8 @@ def test_markdown_can_report_fraction_of_peak_bandwidth(tmp_path: Path) -> None:
     assert "Peak bandwidth %" in text
     assert "Kernel ns/elem" in text
     assert "95% CI GB/s" in text
+    assert "MAD GB/s" in text
+    assert "Outliers" in text
     assert "Correctness" in text
     assert "50.0" in text
 

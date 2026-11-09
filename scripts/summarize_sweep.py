@@ -113,6 +113,15 @@ def _stability_label(bandwidth_cv: float) -> str:
     return "noisy"
 
 
+def _mad_outlier_count(values: list[float], scale: float = 3.0) -> tuple[float, int]:
+    center = median(values)
+    mad = median([abs(value - center) for value in values])
+    if mad == 0.0:
+        return mad, sum(value != center for value in values)
+    cutoff = scale * 1.4826 * mad
+    return mad, sum(abs(value - center) > cutoff for value in values)
+
+
 def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     groups: dict[tuple[str, float, int, int], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
@@ -134,6 +143,7 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
             bandwidths,
             seed=elements + block_size,
         )
+        bandwidth_mad, bandwidth_outliers = _mad_outlier_count(bandwidths)
         bandwidth_cv = stdev(bandwidths) / median_bandwidth if len(group) > 1 and median_bandwidth else 0.0
         maximum_error = max(float(row["maximum_absolute_error"]) for row in group)
         strictest_tolerance = min(float(row["tolerance"]) for row in group)
@@ -152,6 +162,8 @@ def summarize_configurations(rows: list[dict[str, str]]) -> list[dict[str, str]]
                 "bandwidth_ci95_high_gbps": f"{bandwidth_ci_high:.6f}",
                 "kernel_ns_per_element": f"{median(kernel_latencies):.3f}",
                 "bandwidth_cv": f"{bandwidth_cv:.4f}",
+                "bandwidth_mad_gbps": f"{bandwidth_mad:.6f}",
+                "bandwidth_outlier_runs": str(bandwidth_outliers),
                 "bandwidth_stability": _stability_label(bandwidth_cv),
                 "gflops": f"{median([float(row['gflops']) for row in group]):.6f}",
                 "arithmetic_intensity_flop_per_byte": f"{median([float(row['arithmetic_intensity_flop_per_byte']) for row in group]):.6f}",
@@ -243,8 +255,8 @@ def write_markdown(
     lines = [
         "# CUDA SAXPY Sweep Summary",
         "",
-        "| Workload | Effective alpha | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | Kernel ns/elem | CV | Stability | GFLOP/s | Max error | Error/tolerance | Correctness" + efficiency_header + roofline_header + " |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---" + efficiency_rule + roofline_rule + "|",
+        "| Workload | Effective alpha | Elements | Best block | Runs | Median kernel ms | IQR ms | Median GB/s | 95% CI GB/s | MAD GB/s | Outliers | Kernel ns/elem | CV | Stability | GFLOP/s | Max error | Error/tolerance | Correctness" + efficiency_header + roofline_header + " |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---" + efficiency_rule + roofline_rule + "|",
     ]
     for row in rows:
         efficiency = ""
@@ -263,7 +275,8 @@ def write_markdown(
         lines.append(
             "| {workload} | {effective_alpha} | {elements} | {block_size} | {runs} | {gpu_kernel_ms} | "
             "{kernel_iqr_ms} | {effective_bandwidth_gbps} | "
-            "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {kernel_ns_per_element} | "
+            "[{bandwidth_ci95_low_gbps}, {bandwidth_ci95_high_gbps}] | {bandwidth_mad_gbps} | "
+            "{bandwidth_outlier_runs} | {kernel_ns_per_element} | "
             "{bandwidth_cv} | {bandwidth_stability} | {gflops} | {maximum_absolute_error} | "
             "{error_to_tolerance_ratio} | {numerical_status} |".format(**row) +
             efficiency + roofline
