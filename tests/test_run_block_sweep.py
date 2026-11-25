@@ -90,6 +90,19 @@ def test_learning_rate_grid_is_rejected_for_plain_saxpy(tmp_path: Path) -> None:
         run_sweep(_args(tmp_path, learning_rates=[0.1, 0.01]))
 
 
+@pytest.mark.parametrize("overrides", [
+    {"blocks": []},
+    {"elements": []},
+    {"tolerance": float("nan")},
+    {"alpha": float("inf")},
+    {"workload": "sgd-step", "learning_rates": []},
+    {"workload": "sgd-step", "learning_rates": [float("nan")]},
+])
+def test_sweep_rejects_empty_or_nonfinite_configuration(tmp_path: Path, overrides) -> None:
+    with pytest.raises(ValueError):
+        run_sweep(_args(tmp_path, **overrides))
+
+
 def test_command_builder_keeps_optimizer_parameters_explicit(tmp_path: Path) -> None:
     args = _args(tmp_path, workload="sgd-step", alpha=3.0)
 

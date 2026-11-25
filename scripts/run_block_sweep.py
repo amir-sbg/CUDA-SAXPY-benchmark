@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import random
 import subprocess
 from itertools import product
@@ -66,20 +67,22 @@ def run_sweep(args: argparse.Namespace) -> None:
     dry_run = getattr(args, "dry_run", False)
     if not dry_run and not args.binary.exists():
         raise FileNotFoundError(f"benchmark binary was not found: {args.binary}")
-    if any(block < 1 for block in args.blocks):
-        raise ValueError("all block sizes must be positive")
-    if any(elements < 1 for elements in args.elements) or args.iterations < 1:
+    if not args.blocks or any(block < 1 for block in args.blocks):
+        raise ValueError("block sizes must be non-empty and positive")
+    if not args.elements or any(elements < 1 for elements in args.elements) or args.iterations < 1:
         raise ValueError("elements and iterations must be positive")
     if args.warmup < 0 or args.repeats < 1:
         raise ValueError("warmup must be non-negative and repeats must be positive")
-    if args.tolerance <= 0:
-        raise ValueError("tolerance must be positive")
+    if not math.isfinite(args.tolerance) or args.tolerance <= 0:
+        raise ValueError("tolerance must be finite and positive")
+    if not math.isfinite(args.alpha):
+        raise ValueError("alpha must be finite")
     learning_rates = getattr(args, "learning_rates", None)
     if learning_rates is not None and args.workload != "sgd-step":
         raise ValueError("learning-rates can only be swept with the sgd-step workload")
-    update_scales = learning_rates or [args.learning_rate]
-    if any(rate <= 0 for rate in update_scales):
-        raise ValueError("learning rates must be positive")
+    update_scales = [args.learning_rate] if learning_rates is None else learning_rates
+    if not update_scales or any(not math.isfinite(rate) or rate <= 0 for rate in update_scales):
+        raise ValueError("learning rates must be non-empty, finite, and positive")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     configurations = [
