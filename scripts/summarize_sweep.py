@@ -185,7 +185,10 @@ def best_by_problem_size(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     best_rows = []
     for key, group in groups.items():
         workload, effective_alpha, elements = key
-        best = max(group, key=lambda row: float(row["effective_bandwidth_gbps"]))
+        valid = [row for row in group if row["numerical_status"] == "pass"]
+        if not valid:
+            raise ValueError(f"no numerically valid block size for {workload} at {elements} elements")
+        best = max(valid, key=lambda row: float(row["effective_bandwidth_gbps"]))
         best_rows.append(
             {
                 **best,

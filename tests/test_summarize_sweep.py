@@ -83,6 +83,16 @@ def test_best_block_uses_median_bandwidth_instead_of_single_outlier() -> None:
     assert best[0]["block_size"] == "128"
 
 
+def test_best_block_excludes_numerically_invalid_kernel() -> None:
+    fast_but_wrong = _row(256, 200, 0.5)
+    fast_but_wrong["maximum_absolute_error"] = "2e-5"
+    valid = _row(128, 100, 1.0)
+
+    assert best_by_problem_size([fast_but_wrong, valid])[0]["block_size"] == "128"
+    with pytest.raises(ValueError, match="no numerically valid"):
+        best_by_problem_size([fast_but_wrong])
+
+
 def test_summary_comparison_flags_bandwidth_regression() -> None:
     baseline = summarize_configurations([_row(256, 120, 1.0)])
     candidate = summarize_configurations([_row(256, 102, 1.2)])
